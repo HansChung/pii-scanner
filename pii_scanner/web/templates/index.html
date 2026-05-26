@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>個資掃描器 PII Scanner</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system,"Segoe UI",Roboto,"PingFang TC","Microsoft JhengHei",sans-serif;
+    margin: 0; background: linear-gradient(180deg,#f7f8fc 0%,#eef0fa 100%);
+    color: #1f2330; min-height: 100vh;
+  }
+  header { padding: 32px 24px 12px; max-width: 1100px; margin: 0 auto; }
+  header h1 { margin: 0 0 6px; font-size: 28px; }
+  header p { margin: 0; color: #5b607a; }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; }
+  .tabs { display: flex; gap: 4px; margin: 24px 0 0; border-bottom: 1px solid #d6d9e6; }
+  .tab {
+    padding: 10px 18px; border: none; background: transparent;
+    cursor: pointer; font-size: 14px; color: #4a4f66;
+    border-bottom: 2px solid transparent;
+  }
+  .tab.active { color: #2a3da7; border-bottom-color: #2a3da7; font-weight: 600; }
+  .panel {
+    background: #fff; padding: 20px; border-radius: 0 0 12px 12px;
+    box-shadow: 0 4px 16px rgba(20,30,80,.06);
+  }
+  .panel.hidden { display: none; }
+  textarea, input[type=url], input[type=number] {
+    width: 100%; padding: 10px 12px; border: 1px solid #c8cce0; border-radius: 8px;
+    font-size: 14px; font-family: inherit;
+  }
+  textarea { min-height: 160px; resize: vertical; }
+  label { font-size: 13px; color: #4a4f66; display: block; margin: 8px 0 4px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 140px; }
+  button.primary {
+    margin-top: 12px; padding: 10px 22px; border: none; border-radius: 8px;
+    background: #2a3da7; color: #fff; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  button.primary:hover { background: #1e2e85; }
+  button.primary[disabled] { opacity: .6; cursor: not-allowed; }
+  .results { margin-top: 24px; }
+  .summary {
+    background: #fff; padding: 16px 20px; border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(20,30,80,.06); margin-bottom: 16px;
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; margin-right: 6px; font-weight: 600;
+  }
+  .pill.critical { background: #fde2e2; color: #a40000; }
+  .pill.high     { background: #ffe9d6; color: #aa4400; }
+  .pill.medium   { background: #fff5d1; color: #7a5500; }
+  .pill.low      { background: #dde9ff; color: #1d3d8a; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
+          overflow: hidden; box-shadow: 0 4px 16px rgba(20,30,80,.06); }
+  th, td { padding: 10px 12px; border-bottom: 1px solid #eef; font-size: 13px;
+           vertical-align: top; text-align: left; }
+  th { background: #f0f2fa; }
+  tr:last-child td { border-bottom: none; }
+  td.value { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  td.context { color: #555; font-size: 12px; max-width: 360px; word-break: break-all; }
+  .empty { padding: 24px; color: #6a708a; text-align: center; }
+  .error { background: #fde2e2; color: #800; padding: 12px 16px; border-radius: 8px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>個資 (PII) 自動掃描器</h1>
+  <p>支援台灣身分證、手機、信用卡、Email、統編、車牌、IP、護照、健保卡號等格式</p>
+</header>
+<main>
+  <div class="tabs">
+    <button class="tab active" data-tab="text">文字</button>
+    <button class="tab" data-tab="file">檔案</button>
+    <button class="tab" data-tab="url">單一網址</button>
+    <button class="tab" data-tab="site">整個網站</button>
+  </div>
+
+  <section class="panel" data-panel="text">
+    <label for="text">貼上要檢查的文字</label>
+    <textarea id="text" placeholder="例如：客戶 王小明 手機 0912-345-678 身分證 A123456789 …"></textarea>
+    <button class="primary" id="btn-text">開始掃描</button>
+  </section>
+
+  <section class="panel hidden" data-panel="file">
+    <label for="file">選擇文字檔 (.txt .csv .json .html .log 等)</label>
+    <input type="file" id="file">
+    <button class="primary" id="btn-file">上傳並掃描</button>
+  </section>
+
+  <section class="panel hidden" data-panel="url">
+    <label for="url">要掃描的 URL</label>
+    <input type="url" id="url" placeholder="https://example.com/page">
+    <button class="primary" id="btn-url">抓取並掃描</button>
+  </section>
+
+  <section class="panel hidden" data-panel="site">
+    <label for="site-url">起始 URL</label>
+    <input type="url" id="site-url" placeholder="https://example.com">
+    <div class="row">
+      <div>
+        <label for="max-pages">最多頁數</label>
+        <input type="number" id="max-pages" value="15" min="1" max="200">
+      </div>
+      <div>
+        <label for="max-depth">最大深度</label>
+        <input type="number" id="max-depth" value="1" min="0" max="5">
+      </div>
+    </div>
+    <button class="primary" id="btn-site">開始爬取掃描</button>
+  </section>
+
+  <div id="error" class="error" style="display:none"></div>
+  <div class="results" id="results"></div>
+</main>
+
+<script>
+const tabs = document.querySelectorAll('.tab');
+const panels = document.querySelectorAll('.panel');
+tabs.forEach(t => t.addEventListener('click', () => {
+  tabs.forEach(x => x.classList.toggle('active', x === t));
+  panels.forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
+}));
+
+const errEl = document.getElementById('error');
+const resEl = document.getElementById('results');
+
+function showError(msg) {
+  errEl.style.display = 'block';
+  errEl.textContent = msg;
+}
+function clearError() { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+function renderResults(data) {
+  clearError();
+  const s = data.summary || { total: 0, by_severity: {}, by_category: {} };
+  let severityPills = '';
+  for (const k of ['critical','high','medium','low']) {
+    if (s.by_severity[k]) {
+      severityPills += `<span class="pill ${k}">${k}: ${s.by_severity[k]}</span>`;
+    }
+  }
+  const categories = Object.entries(s.by_category || {})
+    .map(([k,v]) => `${k}=${v}`).join('、') || '無';
+  let html = `<div class="summary">
+    <div><strong>命中數：</strong>${s.total}</div>
+    <div style="margin-top:6px">${severityPills || '<em>無命中</em>'}</div>
+    <div style="margin-top:6px;color:#555">類別：${categories}</div>
+  </div>`;
+  if (!data.findings || !data.findings.length) {
+    html += '<div class="empty">沒有偵測到個資。</div>';
+  } else {
+    html += '<table><thead><tr>'
+         + '<th>嚴重度</th><th>偵測器</th><th>類別</th><th>命中 (遮罩)</th>'
+         + '<th>來源 / 位置</th><th>上下文</th></tr></thead><tbody>';
+    for (const f of data.findings) {
+      html += `<tr>
+        <td><span class="pill ${f.severity}">${f.severity}</span></td>
+        <td>${escapeHtml(f.detector)}<div style="color:#555;font-size:12px">${escapeHtml(f.notes||'')}</div></td>
+        <td>${escapeHtml(f.category)}</td>
+        <td class="value">${escapeHtml(f.masked)}</td>
+        <td><div>${escapeHtml(f.source||'<inline>')}</div>
+            <div style="color:#888;font-size:12px">${f.start}-${f.end}</div></td>
+        <td class="context">${escapeHtml(f.context||'')}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+  resEl.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return (s || '').toString()
+    .replaceAll('&','&amp;').replaceAll('<','&lt;')
+    .replaceAll('>','&gt;').replaceAll('"','&quot;');
+}
+
+async function postForm(path, formData, btn) {
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '掃描中…';
+  try {
+    const resp = await fetch(path, { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showError(data.detail || '掃描失敗');
+      return;
+    }
+    renderResults(data);
+  } catch (e) {
+    showError(e.message || String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+document.getElementById('btn-text').addEventListener('click', e => {
+  const fd = new FormData();
+  fd.append('text', document.getElementById('text').value);
+  postForm('/api/scan/text', fd, e.target);
+});
+
+document.getElementById('btn-file').addEventListener('click', e => {
+  const f = document.getElementById('file').files[0];
+  if (!f) { showError('請先選擇檔案'); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  postForm('/api/scan/file', fd, e.target);
+});
+
+document.getElementById('btn-url').addEventListener('click', e => {
+  const fd = new FormData();
+  fd.append('url', document.getElementById('url').value);
+  postForm('/api/scan/url', fd, e.target);
+});
+
+document.getElementById('btn-site').addEventListener('click', e => {
+  const fd = new FormData();
+  fd.append('url', document.getElementById('site-url').value);
+  fd.append('max_pages', document.getElementById('max-pages').value);
+  fd.append('max_depth', document.getElementById('max-depth').value);
+  postForm('/api/scan/site', fd, e.target);
+});
+</script>
+</body></html>
