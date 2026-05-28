@@ -21,6 +21,7 @@ from .bank_account import BankAccountDetector
 from .date_of_birth import DateOfBirthDetector
 from .address import TaiwanAddressDetector
 from .name import ChineseNameDetector
+from .surname_name import SurnameNameDetector, SurnameMatchMode, find_surname_names
 
 ALL_DETECTORS: List[BaseDetector] = [
     TaiwanIDDetector(),
@@ -39,7 +40,26 @@ ALL_DETECTORS: List[BaseDetector] = [
     DateOfBirthDetector(),
     TaiwanAddressDetector(),
     ChineseNameDetector(),
+    SurnameNameDetector(),  # 百家姓全文掃描 (balanced)
 ]
+
+
+def _dedupe_findings(findings: List[Finding]) -> List[Finding]:
+    """合併同一位置、同類別的重複命中（如 chinese_name 與 surname_name）。"""
+    best: dict[tuple, Finding] = {}
+    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for f in findings:
+        key = (f.start, f.end, f.category)
+        prev = best.get(key)
+        if prev is None:
+            best[key] = f
+            continue
+        # 保留 severity 較高者；同級保留較短 detector 名（較具體）
+        if severity_rank.get(f.severity.value, 9) < severity_rank.get(prev.severity.value, 9):
+            best[key] = f
+        elif f.severity == prev.severity and len(f.detector) < len(prev.detector):
+            best[key] = f
+    return sorted(best.values(), key=lambda x: (x.start, x.detector))
 
 
 def detect_in_text(
@@ -56,7 +76,7 @@ def detect_in_text(
             if source is not None:
                 f.source = source
             findings.append(f)
-    findings.sort(key=lambda f: (f.start, f.detector))
+    findings = _dedupe_findings(findings)
     return findings
 
 
@@ -65,5 +85,8 @@ __all__ = [
     "BaseDetector",
     "Finding",
     "Severity",
+    "SurnameMatchMode",
+    "SurnameNameDetector",
+    "find_surname_names",
     "detect_in_text",
 ]

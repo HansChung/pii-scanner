@@ -28,8 +28,34 @@
 | `ipv4` / `ipv6` | IP 位址 | low | 標準格式 + 排除回送/未指定 |
 | `taiwan_license_plate` | 車牌 | low | 新式格式 |
 | `chinese_name` | 中文姓名 | low | 關鍵字 (姓名:) + 2-4 字 |
+| `surname_name` | 中文姓名 | low | **百家姓詞表** + 名字長度 + 排除詞 |
 
 > 所有命中值在輸出時都會**自動遮罩**，僅保留前後幾碼，避免再次外洩。
+
+### 百家姓姓名偵測 (`surname_name`)
+
+不需 LLM，以 **姓氏詞表 + 規則** 在全文掃描：
+
+- 收錄百家姓單姓、常見複姓（歐陽、司馬、諸葛…）
+- 複姓優先比對（長度優先）
+- 排除詞過濾（陳情、王國、台北…）
+- 名字不可含虛詞/動詞（將、是、在…）
+- 過濾職稱/機構後綴（先生、公司、銀行…）
+
+三種模式：
+
+```python
+from pii_scanner.detectors import SurnameNameDetector, SurnameMatchMode, detect_in_text
+
+# balanced（預設，已加入 ALL_DETECTORS）
+findings = detect_in_text("承辦人王小明已完成。")
+
+# strict：僅在標點/空白邊界比對，誤判更少
+det = SurnameNameDetector(mode=SurnameMatchMode.STRICT)
+
+# aggressive：過濾最少，召回率高但誤判也多
+det = SurnameNameDetector(mode=SurnameMatchMode.AGGRESSIVE)
+```
 
 ## 安裝
 
@@ -166,6 +192,24 @@ class MyAPIKeyDetector(BaseDetector):
 pip install pytest
 pytest
 ```
+
+## 與第三方工具比較（要錢嗎？）
+
+| 工具 | 軟體授權費 | 實際可能產生的費用 | 說明 |
+| --- | --- | --- | --- |
+| **本專案 (pii-scanner)** | **免費** (MIT) | 只有你自己機器/VM 的運算成本 | 純 Python，無雲端綁定 |
+| **Microsoft Presidio** | **免費** (Apache 2.0 開源) | 若部署在 Azure VM/K8s/Container Apps → **基礎設施費**；Presidio 本身不收授權費 | `pip install presidio-analyzer` 即可本地跑；中文 NER 需額外模型 |
+| **Google Cloud DLP** | 無開源版 | **按量計費**（依檢查資料量 GB、API 呼叫次數） | 新帳號可能有 **$300 試用額度**，但正式使用需綁 GCP 信用卡；有免費配額但有限 |
+| **AWS Macie** | 無開源版 | **按量計費**（S3 掃描、資料量） | 專為 AWS S3 設計 |
+| **Azure AI Language PII** | 無開源版 | **按 API 呼叫次數計費** | 微軟託管服務，非 Presidio 開源版 |
+
+**實務建議：**
+
+1. **預算有限 / 資料不能出公司** → 用本專案或 Presidio **本地部署**（零授權費）
+2. **已在 GCP 且資料已在 Cloud Storage** → 評估 Cloud DLP（方便但會持續產生帳單）
+3. **需要最高準確度 + 多語言 NER** → Presidio + spaCy 模型，或 Cloud DLP 試用後比較誤判率
+
+> Google Cloud DLP 與 Azure PII 都是「把資料送到雲端 API 分析」，有**資料外送與合規**議題；Presidio / 本專案可在內網離線執行。
 
 ## 設計與限制
 
