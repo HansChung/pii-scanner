@@ -59,3 +59,19 @@ AI_MAX_CHARS = _int_env("PII_AI_MAX_CHARS", 5000)
 
 # 是否允許「整站爬取」掃描使用 AI（預設關閉，避免多頁費用暴增）
 AI_ALLOW_SITE_SCAN = _bool_env("PII_AI_ALLOW_SITE_SCAN", False)
+
+# --- 原文高亮預覽 ---
+# 單一片段（如一張工作表 / 一頁 PDF）最大字元數；超過會截斷後仍可高亮
+PREVIEW_SEGMENT_MAX_CHARS = _int_env("PII_PREVIEW_SEGMENT_MAX_CHARS", 200_000)
+# 整次回應全部 preview 字元數上限（避免單次回應過大）
+PREVIEW_TOTAL_MAX_CHARS = _int_env("PII_PREVIEW_TOTAL_MAX_CHARS", 500_000)
+# 整站掃描預設不回傳 preview（多頁加總可能爆量）；設 true 才回傳
+PREVIEW_SITE_SCAN = _bool_env("PII_PREVIEW_SITE_SCAN", False)
+
+# --- Azure AI Document Intelligence（影像 PDF OCR）---
+AZURE_DI_ENDPOINT = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "").strip().rstrip("/")
+AZURE_DI_KEY = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "").strip()
+# PDF 無文字層時是否自動走 OCR（需設定上面兩個環境變數）
+OCR_FALLBACK_ENABLED = _bool_env("PII_OCR_FALLBACK", True)
+# OCR 單檔字元上限（控制單頁 Azure DI 計費；超過會截斷）
+OCR_MAX_PAGES = _int_env("PII_OCR_MAX_PAGES", 30)

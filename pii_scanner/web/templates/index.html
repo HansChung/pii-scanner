@@ -464,6 +464,85 @@
   /* Subtle scrollbar */
   .table-wrap::-webkit-scrollbar, textarea::-webkit-scrollbar { height: 10px; width: 10px; }
   .table-wrap::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+
+  /* Result view switcher (table vs preview) */
+  .view-switch {
+    display: inline-flex; padding: 4px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-sm);
+  }
+  .view-switch button {
+    border: none; background: transparent; cursor: pointer;
+    padding: 7px 14px; border-radius: 7px;
+    font-size: 13px; color: var(--text-soft); font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .view-switch button svg { width: 14px; height: 14px; }
+  .view-switch button.active {
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-2) 100%);
+    color: white; font-weight: 600;
+  }
+  .results-toolbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+
+  /* Preview segments */
+  .preview-list { display: grid; gap: 14px; padding: 16px 18px; }
+  .preview-segment {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .preview-segment-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--surface-inset); border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .preview-segment-head .name { font-weight: 600; }
+  .preview-segment-head .src { color: var(--text-mute); font-size: 12px; word-break: break-all; }
+  .preview-segment-head .count {
+    margin-left: auto; padding: 2px 10px; border-radius: var(--radius-pill);
+    background: var(--brand-soft); color: var(--brand); font-size: 12px; font-weight: 600;
+  }
+  pre.preview-text {
+    margin: 0; padding: 14px 16px;
+    font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; line-height: 1.65; color: var(--text);
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 560px; overflow: auto;
+    background: var(--surface);
+  }
+  mark.hl {
+    padding: 1px 4px; margin: 0 1px; border-radius: 4px;
+    font-weight: 600;
+    box-shadow: 0 1px 0 rgba(0,0,0,.06);
+    transition: outline-color .12s;
+    outline: 2px solid transparent;
+  }
+  mark.hl:hover { outline-color: currentColor; }
+  mark.hl.critical { background: var(--critical-bg); color: var(--critical); }
+  mark.hl.high     { background: var(--high-bg); color: var(--high); }
+  mark.hl.medium   { background: var(--medium-bg); color: var(--medium); }
+  mark.hl.low      { background: var(--low-bg); color: var(--low); }
+  .truncation-note {
+    padding: 8px 16px; font-size: 12px; color: var(--text-mute);
+    background: var(--surface-inset); border-top: 1px solid var(--border);
+  }
+  .preview-legend {
+    padding: 10px 18px 4px;
+    display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px;
+    color: var(--text-mute);
+  }
+
+  /* OCR badge */
+  .ocr-tag {
+    background: color-mix(in oklab, var(--ok-bg) 60%, var(--surface));
+    color: var(--ok); border: 1px solid color-mix(in oklab, var(--ok) 30%, var(--border));
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
 </style>
 </head>
 <body>
@@ -742,6 +821,91 @@ function statsCard(label, value, cls) {
   return `<div class="stat ${cls||''}"><div class="label">${escapeHtml(label)}</div><div class="value">${value}</div></div>`;
 }
 
+/**
+ * Render plain text with <mark> wrapping each finding position.
+ * findings: [{ start, end, severity, detector, masked }]
+ */
+function highlightText(text, findings) {
+  if (!text) return '';
+  const sorted = (findings || []).slice()
+    .filter(f => Number.isFinite(f.start) && Number.isFinite(f.end) && f.end > f.start)
+    .sort((a, b) => a.start - b.start);
+  let html = '';
+  let cursor = 0;
+  for (const f of sorted) {
+    if (f.start < cursor) continue;
+    if (f.start >= text.length) break;
+    const end = Math.min(f.end, text.length);
+    html += escapeHtml(text.substring(cursor, f.start));
+    const inner = escapeHtml(text.substring(f.start, end));
+    const sev = (f.severity || 'low').toLowerCase();
+    const title = `${f.detector || ''} · ${f.masked || ''}`;
+    html += `<mark class="hl ${sev}" title="${escapeHtml(title)}">${inner}</mark>`;
+    cursor = end;
+  }
+  html += escapeHtml(text.substring(cursor));
+  return html;
+}
+
+function renderPreviewSegments(data) {
+  if (!data.preview || !data.preview.length) return '';
+  const findingsBySource = {};
+  for (const f of (data.findings || [])) {
+    const key = f.source || '<inline>';
+    if (!findingsBySource[key]) findingsBySource[key] = [];
+    findingsBySource[key].push(f);
+  }
+  let segs = '';
+  for (const seg of data.preview) {
+    const segFindings = findingsBySource[seg.source] || [];
+    const parts = splitSource(seg.source);
+    const display = fileDisplayName(parts.file);
+    const loc = parts.location ? locationLabel(parts.location) : '';
+    segs += `<div class="preview-segment">
+      <div class="preview-segment-head">
+        <span class="name">${escapeHtml(display)}${loc ? ' · ' + escapeHtml(loc) : ''}</span>
+        <span class="src">${escapeHtml(seg.source)}</span>
+        <span class="count">${segFindings.length} 筆</span>
+      </div>
+      <pre class="preview-text">${highlightText(seg.text || '', segFindings)}</pre>
+      ${seg.truncated ? '<div class="truncation-note">原文過長已截斷，後段未顯示（仍以表格列出全部命中）。</div>' : ''}
+    </div>`;
+  }
+  const legend = `<div class="preview-legend">
+    <span class="pill critical">critical</span>
+    <span class="pill high">high</span>
+    <span class="pill medium">medium</span>
+    <span class="pill low">low</span>
+    <span>滑鼠移到色塊可看偵測器與遮罩值</span>
+  </div>`;
+  return `<div class="section" id="preview-section" style="display:none">
+    <div class="section-head">
+      <h3>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        原文高亮預覽
+      </h3>
+      <span class="right">${data.preview.length} 段</span>
+    </div>
+    ${legend}
+    <div class="preview-list">${segs}</div>
+  </div>`;
+}
+
+function bindViewSwitch() {
+  const btns = document.querySelectorAll('#view-switch button');
+  const tableSec = document.getElementById('findings-section');
+  const fileSec = document.getElementById('byfile-section');
+  const previewSec = document.getElementById('preview-section');
+  if (!btns.length) return;
+  btns.forEach(b => b.addEventListener('click', () => {
+    btns.forEach(x => x.classList.toggle('active', x === b));
+    const mode = b.dataset.view;
+    if (tableSec) tableSec.style.display = (mode === 'table') ? '' : 'none';
+    if (fileSec) fileSec.style.display = (mode === 'table') ? '' : 'none';
+    if (previewSec) previewSec.style.display = (mode === 'preview') ? '' : 'none';
+  }));
+}
+
 function renderResults(data) {
   clearError();
   const s = data.summary || { total: 0, by_severity: {}, by_category: {} };
@@ -768,6 +932,13 @@ function renderResults(data) {
     }
     if (data.meta.ai_used) metaItems += `<span class="ai-tag">🤖 Azure AI 已啟用 · 分析 ${data.meta.ai_chars_analyzed} 字</span>`;
     else if (data.meta.ai_requested && data.meta.ai_warning) metaItems += `<span class="item" style="color:var(--warn)">⚠ AI：${escapeHtml(data.meta.ai_warning)}</span>`;
+    if (data.meta.ocr_used) {
+      const pgs = data.meta.ocr_pages ? ` · ${data.meta.ocr_pages} 頁` : '';
+      const prov = data.meta.ocr_provider ? ` (${data.meta.ocr_provider})` : '';
+      metaItems += `<span class="ocr-tag">📄 OCR 已啟用${pgs}${prov}</span>`;
+    } else if (data.meta.ocr_warning) {
+      metaItems += `<span class="item" style="color:var(--warn)">⚠ OCR：${escapeHtml(data.meta.ocr_warning)}</span>`;
+    }
     const cats = Object.entries(s.by_category || {}).map(([k,v]) => `${k} (${v})`).join('、') || '無';
     metaItems += `<span class="item">類別：<strong>${escapeHtml(cats)}</strong></span>`;
     html += `<div class="card card-pad"><div class="meta-row">${metaItems}</div></div>`;
@@ -785,6 +956,23 @@ function renderResults(data) {
         無法掃描的 URL / 檔案（${data.scan_issues.length}）
       </div>
       <ul>${items}</ul>
+    </div>`;
+  }
+
+  /* View switch (only if we have findings AND preview) */
+  const hasPreview = data.preview && data.preview.length;
+  if ((data.findings && data.findings.length) || hasPreview) {
+    html += `<div class="results-toolbar">
+      <div class="view-switch" id="view-switch" role="tablist">
+        <button class="active" data-view="table" role="tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          表格檢視
+        </button>
+        ${hasPreview ? `<button data-view="preview" role="tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          原文高亮預覽
+        </button>` : ''}
+      </div>
     </div>`;
   }
 
@@ -807,7 +995,7 @@ function renderResults(data) {
         <td>${locs || '—'}</td>
       </tr>`;
     }
-    html += `<div class="section">
+    html += `<div class="section" id="byfile-section">
       <div class="section-head">
         <h3>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
@@ -851,7 +1039,7 @@ function renderResults(data) {
         <td class="context">${escapeHtml(f.context||'')}</td>
       </tr>`;
     }
-    html += `<div class="section">
+    html += `<div class="section" id="findings-section">
       <div class="section-head">
         <h3>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -869,7 +1057,11 @@ function renderResults(data) {
     </div>`;
   }
 
+  /* Preview section (hidden by default; shown by view-switch) */
+  html += renderPreviewSegments(data);
+
   resEl.innerHTML = html;
+  bindViewSwitch();
   resEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 

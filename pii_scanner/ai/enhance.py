@@ -19,6 +19,10 @@ class ScanMeta:
     scanned_file: Optional[str] = None
     scanned_url: Optional[str] = None
     pages_scanned: Optional[int] = None
+    ocr_used: Optional[bool] = None
+    ocr_pages: Optional[int] = None
+    ocr_provider: Optional[str] = None
+    ocr_warning: Optional[str] = None
 
     def to_dict(self) -> dict:
         out = {
@@ -29,6 +33,10 @@ class ScanMeta:
             "scanned_file": self.scanned_file,
             "scanned_url": self.scanned_url,
             "pages_scanned": self.pages_scanned,
+            "ocr_used": self.ocr_used,
+            "ocr_pages": self.ocr_pages,
+            "ocr_provider": self.ocr_provider,
+            "ocr_warning": self.ocr_warning,
         }
         return {k: v for k, v in out.items() if v is not None}
 

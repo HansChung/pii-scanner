@@ -129,6 +129,22 @@ def _rewrite_document_sources(findings: List[Finding], url: str) -> None:
             f.source = url
 
 
+def _rewrite_preview_sources(preview: dict, url: str) -> None:
+    """同樣把 preview 的 key 改為完整 URL。"""
+    if not preview:
+        return
+    new_items = []
+    for src, text in list(preview.items()):
+        if "#" in src:
+            loc = src.split("#", 1)[1]
+            new_items.append((f"{url}#{loc}", text))
+        else:
+            new_items.append((url, text))
+        del preview[src]
+    for k, v in new_items:
+        preview[k] = v
+
+
 def _document_segments_to_text(data: bytes, url: str, doc_ext: str) -> str:
     filename = _filename_from_url(url, doc_ext)
     if len(data) > MAX_FILE_BYTES:
@@ -145,6 +161,8 @@ def _scan_response_as_document(
     *,
     detectors: Optional[Iterable[BaseDetector]] = None,
     issues: Optional[List[ScanIssue]] = None,
+    preview: Optional[dict] = None,
+    stats: Optional[dict] = None,
 ) -> List[Finding]:
     truncated = len(data) > MAX_FILE_BYTES
     if truncated:
@@ -155,9 +173,19 @@ def _scan_response_as_document(
             )
         data = data[:MAX_FILE_BYTES]
     filename = _filename_from_url(url, doc_ext)
+    sub_preview: Optional[dict] = {} if preview is not None else None
     try:
-        findings = scan_bytes(data, filename, detectors=detectors)
+        findings = scan_bytes(
+            data,
+            filename,
+            detectors=detectors,
+            preview=sub_preview,
+            stats=stats,
+        )
         _rewrite_document_sources(findings, url)
+        if sub_preview is not None and preview is not None:
+            _rewrite_preview_sources(sub_preview, url)
+            preview.update(sub_preview)
         return findings
     except DocumentReadError as exc:
         msg = f"無法解析下載文件：{exc}"
@@ -202,6 +230,8 @@ def scan_url(
     headers: Optional[dict] = None,
     verify_tls: bool = True,
     issues: Optional[List[ScanIssue]] = None,
+    preview: Optional[dict] = None,
+    stats: Optional[dict] = None,
 ) -> List[Finding]:
     """抓取單一 URL 並掃描（HTML 頁面或直接指向 PDF/Word/Excel 等文件 URL）。"""
     _check_runtime()
@@ -220,12 +250,15 @@ def scan_url(
     doc_ext = _resolve_document_ext(url, content_type, data)
     if doc_ext:
         return _scan_response_as_document(
-            data, url, doc_ext, detectors=detectors, issues=issues
+            data, url, doc_ext,
+            detectors=detectors, issues=issues, preview=preview, stats=stats,
         )
     if "html" in content_type or "xml" in content_type:
         text = _html_to_text(resp.text)
     else:
         text = resp.text
+    if preview is not None and text:
+        preview[url] = text
     return detect_in_text(text, detectors=detectors, source=url)
 
 
@@ -253,6 +286,7 @@ def scan_site(
     verify_tls: bool = True,
     issues: Optional[List[ScanIssue]] = None,
     stats: Optional[dict] = None,
+    preview: Optional[dict] = None,
 ) -> List[Finding]:
     """以 BFS 走訪同網域連結並掃描每個頁面與可下載文件。"""
     _check_runtime()
@@ -294,12 +328,15 @@ def scan_site(
         if doc_ext:
             findings.extend(
                 _scan_response_as_document(
-                    data, url, doc_ext, detectors=detectors, issues=issues
+                    data, url, doc_ext,
+                    detectors=detectors, issues=issues, preview=preview, stats=stats,
                 )
             )
         elif "html" in content_type:
             text = _html_to_text(resp.text)
             findings.extend(detect_in_text(text, detectors=detectors, source=url))
+            if preview is not None and text:
+                preview[url] = text
             for link in _extract_links(url, resp.text):
                 if same_origin and urlparse(link).netloc != start_origin:
                     continue
@@ -309,6 +346,8 @@ def scan_site(
                     queue.append((link, depth + 1))
         elif "text" in content_type or "json" in content_type:
             findings.extend(detect_in_text(resp.text, detectors=detectors, source=url))
+            if preview is not None and resp.text:
+                preview[url] = resp.text
 
         if delay > 0:
             time.sleep(delay)

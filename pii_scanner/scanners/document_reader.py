@@ -4,17 +4,20 @@
 - Excel (.xlsx, .xlsm)：逐工作表擷取儲存格
 - OpenDocument 試算表 (.ods)：逐工作表
 - OpenDocument 文字 (.odt)、Word (.docx)：段落與表格
-- PDF (.pdf)：逐頁擷取文字
+- PDF (.pdf)：逐頁擷取文字；無文字層時自動走 Azure DI OCR（若已設定）
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
-from ..settings import MAX_DOCUMENT_ROWS, MAX_DOCUMENT_SHEETS
+from ..settings import MAX_DOCUMENT_ROWS, MAX_DOCUMENT_SHEETS, OCR_FALLBACK_ENABLED
 from .spreadsheet_text import rows_to_scan_text
+
+log = logging.getLogger(__name__)
 
 # 二進位文件副檔名 → 擷取函式
 XLSX_SUFFIXES = {".xlsx", ".xlsm"}
@@ -217,7 +220,12 @@ def _extract_docx(data: bytes, filename: str) -> List[DocumentSegment]:
     return [DocumentSegment(source=filename, text=text)]
 
 
-def _extract_pdf(data: bytes, filename: str) -> List[DocumentSegment]:
+def _extract_pdf(
+    data: bytes,
+    filename: str,
+    *,
+    stats: Optional[dict] = None,
+) -> List[DocumentSegment]:
     try:
         from pypdf import PdfReader
     except ImportError as exc:
@@ -234,7 +242,8 @@ def _extract_pdf(data: bytes, filename: str) -> List[DocumentSegment]:
         except Exception as exc:
             raise DocumentReadError("PDF 已加密，無法讀取") from exc
 
-    segments: List[DocumentSegment] = []
+    pages_text: List[tuple[int, str]] = []
+    total_pages = len(reader.pages)
     for idx, page in enumerate(reader.pages):
         if idx >= MAX_DOCUMENT_SHEETS:
             break
@@ -242,14 +251,49 @@ def _extract_pdf(data: bytes, filename: str) -> List[DocumentSegment]:
             raw = page.extract_text() or ""
         except Exception:
             raw = ""
-        text = raw.strip()
+        pages_text.append((idx + 1, raw.strip()))
+
+    has_text = any(text for _, text in pages_text)
+
+    if not has_text and OCR_FALLBACK_ENABLED:
+        try:
+            from ..ocr import OcrError, is_configured, ocr_pdf_pages
+        except ImportError:  # pragma: no cover
+            OcrError = is_configured = ocr_pdf_pages = None  # type: ignore
+
+        if is_configured and is_configured():
+            try:
+                ocr_pages = ocr_pdf_pages(data)
+            except OcrError as exc:  # type: ignore[misc]
+                log.warning("PDF 無文字層且 OCR 失敗：%s", exc)
+                if stats is not None:
+                    stats["ocr_warning"] = str(exc)
+            else:
+                pages_text = [
+                    (page_no, ocr_pages.get(page_no, "") or existing)
+                    for page_no, existing in pages_text
+                ]
+                if stats is not None:
+                    stats["ocr_used"] = True
+                    stats["ocr_pages"] = sum(1 for _, t in pages_text if t)
+                    stats["ocr_provider"] = "azure-di"
+        elif stats is not None:
+            stats["ocr_warning"] = (
+                "PDF 無文字層；可設定 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT/KEY 啟用 OCR。"
+            )
+
+    segments: List[DocumentSegment] = []
+    for page_no, text in pages_text:
+        text = (text or "").strip()
         if text:
-            segments.append(DocumentSegment(source=f"{filename}#page={idx + 1}", text=text))
+            segments.append(DocumentSegment(source=f"{filename}#page={page_no}", text=text))
 
     if not segments:
         raise DocumentReadError(
-            "PDF 無可擷取文字；若為掃描影像 PDF（純圖片），需 OCR，目前不支援"
+            "PDF 無可擷取文字；若為掃描影像 PDF，請設定 Azure Document Intelligence 啟用 OCR。"
         )
+    if stats is not None:
+        stats.setdefault("total_pages", total_pages)
     return segments
 
 
@@ -277,8 +321,12 @@ def extract_document_segments(
     filename: str,
     *,
     ext: str | None = None,
+    stats: Optional[dict] = None,
 ) -> List[DocumentSegment]:
-    """依副檔名（或指定 ext）擷取文件各分頁/段落文字。"""
+    """依副檔名（或指定 ext）擷取文件各分頁/段落文字。
+
+    若傳入 *stats*，會記錄 OCR 使用情況（``ocr_used``、``ocr_pages`` 等）。
+    """
     from .format_sniff import sniff_document_suffix
 
     chosen = (ext or Path(filename).suffix or "").lower()
@@ -293,7 +341,10 @@ def extract_document_segments(
     fn = _EXTRACTORS.get(chosen)
     if fn is None:
         raise DocumentReadError(f"不支援的文件格式 {chosen}")
-    segments = fn(data, filename)
+    try:
+        segments = fn(data, filename, stats=stats)  # type: ignore[call-arg]
+    except TypeError:
+        segments = fn(data, filename)
     if not segments:
         raise DocumentReadError("文件內容為空或無可讀文字")
     return segments

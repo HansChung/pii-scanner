@@ -28,6 +28,7 @@ from ..settings import (
     MAX_SITE_DEPTH,
     MAX_SITE_PAGES,
     MAX_UPLOAD_BYTES,
+    PREVIEW_SITE_SCAN,
 )
 from ..whitelist import WhitelistConfig, apply_whitelist, list_known_detectors, load_whitelist, save_whitelist
 
@@ -47,10 +48,16 @@ def _respond(
     findings: List[Finding],
     meta: Optional[ScanMeta] = None,
     scan_issues: Optional[List[dict]] = None,
+    preview: Optional[dict] = None,
 ) -> JSONResponse:
     finalized = _finalize(findings)
     return JSONResponse(
-        findings_to_dict(finalized, meta=meta.to_dict() if meta else None, scan_issues=scan_issues)
+        findings_to_dict(
+            finalized,
+            meta=meta.to_dict() if meta else None,
+            scan_issues=scan_issues,
+            preview=preview,
+        )
     )
 
 
@@ -96,12 +103,17 @@ async def api_scan_text(
 ) -> JSONResponse:
     ai = _parse_use_ai(use_ai)
 
-    def _run() -> tuple[List[Finding], ScanMeta]:
-        findings = scan_text(text, source="api:text", detectors=get_active_detectors())
-        return maybe_enhance_with_ai(text, findings, source="api:text", use_ai=ai)
+    def _run() -> tuple[List[Finding], ScanMeta, dict]:
+        preview: dict = {}
+        findings = scan_text(
+            text, source="api:text",
+            detectors=get_active_detectors(), preview=preview,
+        )
+        findings, meta = maybe_enhance_with_ai(text, findings, source="api:text", use_ai=ai)
+        return findings, meta, preview
 
-    findings, meta = await asyncio.to_thread(_run)
-    return _respond(findings, meta)
+    findings, meta, preview = await asyncio.to_thread(_run)
+    return _respond(findings, meta, preview=preview)
 
 
 @app.post("/api/scan/file")
@@ -117,23 +129,34 @@ async def api_scan_file(
 
     filename = file.filename or "upload"
 
-    def _run() -> tuple[List[Finding], ScanMeta]:
-        findings = scan_bytes(raw, filename, detectors=get_active_detectors())
+    def _run() -> tuple[List[Finding], ScanMeta, dict]:
+        preview: dict = {}
+        stats: dict = {}
+        findings = scan_bytes(
+            raw, filename,
+            detectors=get_active_detectors(), preview=preview, stats=stats,
+        )
         text = text_from_upload(raw, filename) if ai else ""
         findings, meta = maybe_enhance_with_ai(
             text, findings, source=filename, use_ai=ai and bool(text.strip())
         )
         meta.scanned_file = filename
-        return findings, meta
+        if stats.get("ocr_used"):
+            meta.ocr_used = True
+            meta.ocr_pages = stats.get("ocr_pages")
+            meta.ocr_provider = stats.get("ocr_provider")
+        if stats.get("ocr_warning"):
+            meta.ocr_warning = stats["ocr_warning"]
+        return findings, meta, preview
 
     try:
-        findings, meta = await asyncio.to_thread(_run)
+        findings, meta, preview = await asyncio.to_thread(_run)
     except DocumentReadError as exc:
         raise HTTPException(
             status_code=415,
             detail=f"檔案「{filename}」無法解析：{exc}",
         )
-    return _respond(findings, meta)
+    return _respond(findings, meta, preview=preview)
 
 
 @app.post("/api/scan/url")
@@ -143,26 +166,40 @@ async def api_scan_url(
 ) -> JSONResponse:
     ai = _parse_use_ai(use_ai)
 
-    def _run() -> tuple[List[Finding], ScanMeta, list]:
+    def _run() -> tuple[List[Finding], ScanMeta, list, dict]:
         url_issues: list = []
+        preview: dict = {}
+        stats: dict = {}
         findings = scan_url(
             url,
             timeout=HTTP_TIMEOUT,
             detectors=get_active_detectors(),
             issues=url_issues,
+            preview=preview,
+            stats=stats,
         )
         text = fetch_url_text(url, timeout=HTTP_TIMEOUT) if ai else ""
         findings, meta = maybe_enhance_with_ai(
             text, findings, source=url, use_ai=ai and bool(text.strip())
         )
         meta.scanned_url = url
-        return findings, meta, url_issues
+        if stats.get("ocr_used"):
+            meta.ocr_used = True
+            meta.ocr_pages = stats.get("ocr_pages")
+            meta.ocr_provider = stats.get("ocr_provider")
+        if stats.get("ocr_warning"):
+            meta.ocr_warning = stats["ocr_warning"]
+        return findings, meta, url_issues, preview
 
     try:
-        findings, meta, url_issues = await asyncio.to_thread(_run)
+        findings, meta, url_issues, preview = await asyncio.to_thread(_run)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"抓取 URL 失敗：{exc}")
-    return _respond(findings, meta, scan_issues=[i.to_dict() for i in url_issues])
+    return _respond(
+        findings, meta,
+        scan_issues=[i.to_dict() for i in url_issues],
+        preview=preview,
+    )
 
 
 @app.post("/api/scan/site")
@@ -176,9 +213,10 @@ async def api_scan_site(
     pages = min(max(1, max_pages), MAX_SITE_PAGES)
     depth = min(max(0, max_depth), MAX_SITE_DEPTH)
 
-    def _run() -> tuple[List[Finding], ScanMeta, list]:
+    def _run() -> tuple[List[Finding], ScanMeta, list, dict]:
         site_issues: list = []
         stats: dict = {}
+        preview: dict = {} if PREVIEW_SITE_SCAN else None  # type: ignore[assignment]
         findings = scan_site(
             url,
             max_pages=pages,
@@ -187,23 +225,34 @@ async def api_scan_site(
             detectors=get_active_detectors(),
             issues=site_issues,
             stats=stats,
+            preview=preview,
         )
         meta = ScanMeta(ai_requested=ai)
         meta.scanned_url = stats.get("start_url", url)
         if stats.get("pages_scanned") is not None:
             meta.pages_scanned = stats["pages_scanned"]
+        if stats.get("ocr_used"):
+            meta.ocr_used = True
+            meta.ocr_pages = stats.get("ocr_pages")
+            meta.ocr_provider = stats.get("ocr_provider")
+        if stats.get("ocr_warning"):
+            meta.ocr_warning = stats["ocr_warning"]
         if ai and not AI_ALLOW_SITE_SCAN:
             meta.ai_warning = (
                 "整站爬取預設不使用 Azure AI（避免多頁費用過高）。"
                 "若需啟用請設定 PII_AI_ALLOW_SITE_SCAN=true。"
             )
-        return findings, meta, site_issues
+        return findings, meta, site_issues, (preview or {})
 
     try:
-        findings, meta, site_issues = await asyncio.to_thread(_run)
+        findings, meta, site_issues, preview = await asyncio.to_thread(_run)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"爬取網站失敗：{exc}")
-    return _respond(findings, meta, scan_issues=[i.to_dict() for i in site_issues])
+    return _respond(
+        findings, meta,
+        scan_issues=[i.to_dict() for i in site_issues],
+        preview=preview if preview else None,
+    )
 
 
 @app.post("/api/scan/text/html", response_class=HTMLResponse)
