@@ -23,6 +23,16 @@ class ScanMeta:
     ocr_pages: Optional[int] = None
     ocr_provider: Optional[str] = None
     ocr_warning: Optional[str] = None
+    # 整站掃描統計
+    html_scanned: Optional[int] = None
+    documents_scanned: Optional[int] = None
+    archives_scanned: Optional[int] = None
+    text_scanned: Optional[int] = None
+    sitemap_seeded: Optional[int] = None
+    bytes_total: Optional[int] = None
+    # ZIP 統計
+    archive_total: Optional[int] = None
+    archive_scanned_members: Optional[int] = None
 
     def to_dict(self) -> dict:
         out = {
@@ -37,6 +47,14 @@ class ScanMeta:
             "ocr_pages": self.ocr_pages,
             "ocr_provider": self.ocr_provider,
             "ocr_warning": self.ocr_warning,
+            "html_scanned": self.html_scanned,
+            "documents_scanned": self.documents_scanned,
+            "archives_scanned": self.archives_scanned,
+            "text_scanned": self.text_scanned,
+            "sitemap_seeded": self.sitemap_seeded,
+            "bytes_total": self.bytes_total,
+            "archive_total": self.archive_total,
+            "archive_scanned_members": self.archive_scanned_members,
         }
         return {k: v for k, v in out.items() if v is not None}
 

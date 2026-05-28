@@ -14,6 +14,7 @@ from typing import Dict, Iterable, Iterator, List, Optional
 
 from ..detectors import detect_in_text
 from ..detectors.base import BaseDetector, Finding
+from .archive import ArchiveReadError, extract_zip_members, is_zip_archive
 from .document_reader import (
     DOCUMENT_SUFFIXES,
     DocumentReadError,
@@ -64,11 +65,14 @@ def scan_bytes(
     detectors: Optional[Iterable[BaseDetector]] = None,
     preview: Optional[Dict[str, str]] = None,
     stats: Optional[Dict[str, object]] = None,
+    issues: Optional[List[ScanIssue]] = None,
+    _archive_depth: int = 0,
 ) -> List[Finding]:
-    """掃描記憶體中的檔案內容（文字檔或 Office/開放文件）。
+    """掃描記憶體中的檔案內容（文字檔、Office/開放文件、PDF、ZIP 壓縮包）。
 
     - ``preview``：若提供，會以 ``{source: text}`` 寫入各分段原文。
     - ``stats``：若提供，會寫入 OCR / 解析 metadata（例如 ``ocr_used``）。
+    - ``issues``：若提供，會記錄壓縮包內無法解析的成員。
     """
     name = filename or "upload"
     ext = Path(name).suffix.lower()
@@ -83,6 +87,12 @@ def scan_bytes(
             if preview is not None:
                 preview[seg.source] = seg.text
         return findings
+
+    if (ext == ".zip" or is_zip_archive(data)) and _archive_depth < 1:
+        return _scan_zip_bytes(
+            data, name,
+            detectors=detectors, preview=preview, stats=stats, issues=issues,
+        )
 
     if is_likely_binary(data):
         hint = ""
@@ -103,6 +113,68 @@ def scan_bytes(
     if preview is not None:
         preview[name] = text
     return detect_in_text(text, detectors=detectors, source=name)
+
+
+def _prefix_source(source: Optional[str], prefix: str) -> str:
+    """將檔名 source（含 #位置）改為 ``prefix!原 source``。"""
+    if not source:
+        return prefix
+    if "#" in source:
+        loc = source.split("#", 1)[1]
+        head = source.split("#", 1)[0]
+        return f"{prefix}!{head}#{loc}"
+    return f"{prefix}!{source}"
+
+
+def _scan_zip_bytes(
+    data: bytes,
+    archive_name: str,
+    *,
+    detectors: Optional[Iterable[BaseDetector]] = None,
+    preview: Optional[Dict[str, str]] = None,
+    stats: Optional[Dict[str, object]] = None,
+    issues: Optional[List[ScanIssue]] = None,
+) -> List[Finding]:
+    try:
+        members = extract_zip_members(data)
+    except ArchiveReadError as exc:
+        raise DocumentReadError(str(exc)) from exc
+
+    findings: List[Finding] = []
+    scanned = 0
+    for member in members:
+        member_source = f"{archive_name}!{member.name}"
+        sub_preview: Optional[Dict[str, str]] = {} if preview is not None else None
+        try:
+            sub_findings = scan_bytes(
+                member.data, member.name,
+                detectors=detectors,
+                preview=sub_preview,
+                stats=stats,
+                issues=issues,
+                _archive_depth=1,
+            )
+        except DocumentReadError as exc:
+            if issues is not None:
+                issues.append(ScanIssue(member_source, str(exc)))
+            continue
+        for f in sub_findings:
+            f.source = _prefix_source(f.source, archive_name)
+        findings.extend(sub_findings)
+        if sub_preview is not None and preview is not None:
+            for k, v in sub_preview.items():
+                preview[_prefix_source(k, archive_name)] = v
+        scanned += 1
+
+    if stats is not None:
+        stats.setdefault("archive_total", 0)
+        stats.setdefault("archive_scanned", 0)
+        stats["archive_total"] = int(stats.get("archive_total", 0)) + len(members)
+        stats["archive_scanned"] = int(stats.get("archive_scanned", 0)) + scanned
+
+    if not members:
+        raise DocumentReadError("壓縮包內無可掃描的檔案（皆為目錄或超過大小上限）")
+    return findings
 
 
 def scan_file(
