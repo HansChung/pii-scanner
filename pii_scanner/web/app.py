@@ -43,9 +43,15 @@ def _finalize(findings: List[Finding]) -> List[Finding]:
     return apply_whitelist(findings)
 
 
-def _respond(findings: List[Finding], meta: Optional[ScanMeta] = None) -> JSONResponse:
+def _respond(
+    findings: List[Finding],
+    meta: Optional[ScanMeta] = None,
+    scan_issues: Optional[List[dict]] = None,
+) -> JSONResponse:
     finalized = _finalize(findings)
-    return JSONResponse(findings_to_dict(finalized, meta=meta.to_dict() if meta else None))
+    return JSONResponse(
+        findings_to_dict(finalized, meta=meta.to_dict() if meta else None, scan_issues=scan_issues)
+    )
 
 
 def _parse_use_ai(raw: str = Form("false")) -> bool:
@@ -114,14 +120,19 @@ async def api_scan_file(
     def _run() -> tuple[List[Finding], ScanMeta]:
         findings = scan_bytes(raw, filename, detectors=get_active_detectors())
         text = text_from_upload(raw, filename) if ai else ""
-        return maybe_enhance_with_ai(
+        findings, meta = maybe_enhance_with_ai(
             text, findings, source=filename, use_ai=ai and bool(text.strip())
         )
+        meta.scanned_file = filename
+        return findings, meta
 
     try:
         findings, meta = await asyncio.to_thread(_run)
     except DocumentReadError as exc:
-        raise HTTPException(status_code=415, detail=str(exc))
+        raise HTTPException(
+            status_code=415,
+            detail=f"檔案「{filename}」無法解析：{exc}",
+        )
     return _respond(findings, meta)
 
 

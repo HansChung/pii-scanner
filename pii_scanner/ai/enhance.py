@@ -16,6 +16,7 @@ class ScanMeta:
     ai_used: bool = False
     ai_chars_analyzed: int = 0
     ai_warning: Optional[str] = None
+    scanned_file: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -23,6 +24,7 @@ class ScanMeta:
             "ai_used": self.ai_used,
             "ai_chars_analyzed": self.ai_chars_analyzed,
             "ai_warning": self.ai_warning,
+            "scanned_file": self.scanned_file,
         }
 
 

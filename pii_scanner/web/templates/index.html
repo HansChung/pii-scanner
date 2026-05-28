@@ -85,6 +85,13 @@
   .ai-option label { font-size: 14px; cursor: pointer; }
   .ai-option input { margin-right: 8px; }
   .ai-option .hint { font-size: 12px; color: #5b607a; margin: 6px 0 0 24px; line-height: 1.5; }
+  .warn-box {
+    background: #fff5eb; border: 1px solid #f0c090; border-left: 4px solid #aa4400;
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px;
+  }
+  .warn-box ul { margin: 8px 0 0; padding-left: 1.2em; }
+  .sub-src { color: #888; font-size: 12px; word-break: break-all; }
+  h3.section-title { font-size: 16px; margin: 20px 0 8px; color: #2a3da7; }
 </style>
 </head>
 <body>
@@ -195,6 +202,33 @@ function showError(msg) {
 }
 function clearError() { errEl.style.display = 'none'; errEl.textContent = ''; }
 
+function splitSource(source) {
+  if (!source) return { file: null, location: null };
+  const idx = source.indexOf('#');
+  if (idx >= 0) {
+    return { file: source.slice(0, idx) || source, location: source.slice(idx + 1) || null };
+  }
+  return { file: source, location: null };
+}
+
+function locationLabel(loc) {
+  if (!loc) return '（全文）';
+  if (loc.startsWith('page=')) return '第 ' + loc.slice(5) + ' 頁';
+  return loc;
+}
+
+function fileDisplayName(fileKey) {
+  if (!fileKey) return '<inline>';
+  if (fileKey.includes('://')) {
+    try {
+      const path = new URL(fileKey).pathname;
+      const name = path.split('/').filter(Boolean).pop();
+      return name || fileKey;
+    } catch (_) { return fileKey; }
+  }
+  return fileKey.split(/[/\\]/).pop() || fileKey;
+}
+
 function renderResults(data) {
   clearError();
   const s = data.summary || { total: 0, by_severity: {}, by_category: {} };
@@ -211,6 +245,9 @@ function renderResults(data) {
     <div style="margin-top:6px">${severityPills || '<em>無命中</em>'}</div>
     <div style="margin-top:6px;color:#555">類別：${categories}</div>`;
   if (data.meta) {
+    if (data.meta.scanned_file) {
+      html += `<div style="margin-top:8px;color:#555;font-size:13px">掃描檔案：<strong>${escapeHtml(data.meta.scanned_file)}</strong></div>`;
+    }
     if (data.meta.ai_used) {
       html += `<div style="margin-top:8px;color:#1d3d8a;font-size:13px">🤖 已使用 Azure AI 增強（分析 ${data.meta.ai_chars_analyzed} 字）</div>`;
     } else if (data.meta.ai_requested && data.meta.ai_warning) {
@@ -218,20 +255,51 @@ function renderResults(data) {
     }
   }
   html += `</div>`;
+
+  if (data.scan_issues && data.scan_issues.length) {
+    html += '<div class="warn-box"><strong>無法掃描的檔案</strong><ul>';
+    for (const issue of data.scan_issues) {
+      html += `<li><code>${escapeHtml(issue.path)}</code> — ${escapeHtml(issue.reason)}</li>`;
+    }
+    html += '</ul></div>';
+  }
+
+  if (s.by_file && s.by_file.length) {
+    html += '<h3 class="section-title">依檔案摘要</h3><table><thead><tr>'
+         + '<th>檔案</th><th>命中數</th><th>位置明細</th></tr></thead><tbody>';
+    for (const row of s.by_file) {
+      const display = fileDisplayName(row.file);
+      const locs = (row.locations || [])
+        .map(loc => `${escapeHtml(loc.label || locationLabel(loc.location))} (${loc.count})`)
+        .join('、');
+      html += `<tr>
+        <td><strong>${escapeHtml(display)}</strong>
+            <div class="sub-src">${escapeHtml(row.file)}</div></td>
+        <td>${row.total}</td>
+        <td>${locs || '—'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
   if (!data.findings || !data.findings.length) {
     html += '<div class="empty">沒有偵測到個資。</div>';
   } else {
-    html += '<table><thead><tr>'
+    html += '<h3 class="section-title">命中明細</h3><table><thead><tr>'
          + '<th>嚴重度</th><th>偵測器</th><th>類別</th><th>命中 (遮罩)</th>'
-         + '<th>來源 / 位置</th><th>上下文</th></tr></thead><tbody>';
+         + '<th>檔案 / 位置</th><th>上下文</th></tr></thead><tbody>';
     for (const f of data.findings) {
+      const parts = splitSource(f.source);
+      const display = fileDisplayName(parts.file);
+      const loc = parts.location ? locationLabel(parts.location) : '—';
       html += `<tr>
         <td><span class="pill ${f.severity}">${f.severity}</span></td>
         <td>${escapeHtml(f.detector)}<div style="color:#555;font-size:12px">${escapeHtml(f.notes||'')}</div></td>
         <td>${escapeHtml(f.category)}</td>
         <td class="value">${escapeHtml(f.masked)}</td>
-        <td><div>${escapeHtml(f.source||'<inline>')}</div>
-            <div style="color:#888;font-size:12px">${f.start}-${f.end}</div></td>
+        <td><strong>${escapeHtml(display)}</strong>
+            <div class="sub-src">${escapeHtml(parts.file || '')}</div>
+            <div class="sub-src">${escapeHtml(loc)} · ${f.start}-${f.end}</div></td>
         <td class="context">${escapeHtml(f.context||'')}</td>
       </tr>`;
     }

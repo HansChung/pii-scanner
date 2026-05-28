@@ -5,9 +5,15 @@ import html as html_lib
 import json
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 
 from ..detectors.base import Finding, Severity
+from .source_label import (
+    format_file_display_name,
+    split_source_label,
+    summarize_by_file,
+    summarize_by_source,
+)
 
 SEVERITY_ORDER = {
     Severity.CRITICAL.value: 0,
@@ -39,11 +45,17 @@ def summarize(findings: Iterable[Finding]) -> dict:
         "by_category": dict(category_counter),
         "by_detector": dict(detector_counter),
         "sources": sources,
+        "by_source": summarize_by_source(findings),
+        "by_file": summarize_by_file(findings),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def findings_to_dict(findings: Iterable[Finding], meta: dict | None = None) -> dict:
+def findings_to_dict(
+    findings: Iterable[Finding],
+    meta: dict | None = None,
+    scan_issues: Optional[List[dict]] = None,
+) -> dict:
     findings = sorted(
         findings,
         key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 9), f.source or "", f.start),
@@ -54,11 +66,17 @@ def findings_to_dict(findings: Iterable[Finding], meta: dict | None = None) -> d
     }
     if meta:
         out["meta"] = meta
+    if scan_issues:
+        out["scan_issues"] = scan_issues
     return out
 
 
-def render_json(findings: Iterable[Finding], indent: int = 2) -> str:
-    return json.dumps(findings_to_dict(findings), ensure_ascii=False, indent=indent)
+def render_json(
+    findings: Iterable[Finding],
+    indent: int = 2,
+    scan_issues: Optional[List[dict]] = None,
+) -> str:
+    return json.dumps(findings_to_dict(findings, scan_issues=scan_issues), ensure_ascii=False, indent=indent)
 
 
 def render_terminal(findings: Iterable[Finding], use_color: bool = True) -> str:
@@ -82,6 +100,14 @@ def render_terminal(findings: Iterable[Finding], use_color: bool = True) -> str:
             "  類別: "
             + ", ".join(f"{k}={v}" for k, v in sorted(summary["by_category"].items()))
         )
+    if summary.get("by_file"):
+        lines.append("")
+        lines.append(f"{c('bold')}依檔案摘要{c('reset')}")
+        for row in summary["by_file"]:
+            name = format_file_display_name(row["file"])
+            lines.append(f"  {c('bold')}{name}{c('reset')} ({row['file']}) — {row['total']} 筆")
+            for loc in row["locations"]:
+                lines.append(f"    · {loc['label']}: {loc['count']}")
     lines.append("")
 
     sorted_findings = sorted(
@@ -90,10 +116,14 @@ def render_terminal(findings: Iterable[Finding], use_color: bool = True) -> str:
     )
     for f in sorted_findings:
         src = f.source or "<inline>"
+        parts = split_source_label(f.source)
+        loc_hint = ""
+        if parts["location"]:
+            loc_hint = f" ({parts['location']})"
         sev = f.severity.value
         lines.append(
             f"{c(sev)}[{sev.upper()}]{c('reset')} "
-            f"{c('bold')}{f.detector}{c('reset')} @ {src}:{f.start}-{f.end}"
+            f"{c('bold')}{f.detector}{c('reset')} @ {src}{loc_hint}:{f.start}-{f.end}"
         )
         lines.append(f"  值      : {f.masked}  {c('dim')}(原值長度 {len(f.value)}){c('reset')}")
         lines.append(f"  類別    : {f.category}")
@@ -136,7 +166,7 @@ HTML_HEAD = """<!doctype html>
 """
 
 
-def render_html(findings: Iterable[Finding]) -> str:
+def render_html(findings: Iterable[Finding], scan_issues: Optional[List[dict]] = None) -> str:
     findings = list(findings)
     summary = summarize(findings)
     sev_pills = " ".join(
@@ -147,12 +177,42 @@ def render_html(findings: Iterable[Finding]) -> str:
         ", ".join(f"{k}={v}" for k, v in sorted(summary["by_category"].items()))
         or "無"
     )
+    file_rows: List[str] = []
+    for row in summary.get("by_file") or []:
+        loc_text = "、".join(
+            f"{html_lib.escape(loc['label'])} ({loc['count']})" for loc in row["locations"]
+        )
+        display = html_lib.escape(format_file_display_name(row["file"]))
+        full = html_lib.escape(row["file"])
+        file_rows.append(
+            f"<tr><td><strong>{display}</strong>"
+            f'<div class="src">{full}</div></td>'
+            f"<td>{row['total']}</td>"
+            f"<td>{loc_text}</td></tr>"
+        )
+    issue_block = ""
+    if scan_issues:
+        issue_items = "".join(
+            f"<li><code>{html_lib.escape(i['path'])}</code> — "
+            f"{html_lib.escape(i['reason'])}</li>"
+            for i in scan_issues
+        )
+        issue_block = (
+            '<div class="summary" style="border-left:4px solid #aa4400">'
+            "<strong>無法掃描的檔案</strong>"
+            f"<ul style=\"margin:8px 0 0;padding-left:20px\">{issue_items}</ul></div>"
+        )
     rows: List[str] = []
     sorted_findings = sorted(
         findings,
         key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 9), f.source or "", f.start),
     )
     for f in sorted_findings:
+        parts = split_source_label(f.source)
+        file_cell = html_lib.escape(format_file_display_name(parts["file"] or "<inline>"))
+        if parts["file"] and format_file_display_name(parts["file"]) != parts["file"]:
+            file_cell += f'<div class="src">{html_lib.escape(parts["file"])}</div>'
+        loc_cell = html_lib.escape(parts["location"] or "—")
         rows.append(
             "<tr>"
             f'<td><span class="pill {f.severity.value}">{f.severity.value}</span></td>'
@@ -160,21 +220,34 @@ def render_html(findings: Iterable[Finding]) -> str:
             f'<div class="notes">{html_lib.escape(f.notes)}</div></td>'
             f"<td>{html_lib.escape(f.category)}</td>"
             f'<td class="value">{html_lib.escape(f.masked)}</td>'
-            f'<td><div>{html_lib.escape(f.source or "<inline>")}</div>'
+            f"<td><strong>{file_cell}</strong>"
+            f'<div class="src">{loc_cell}</div>'
             f'<div class="src">{f.start}-{f.end}</div></td>'
             f'<td class="context">{html_lib.escape(f.context)}</td>'
             "</tr>"
         )
+    file_table = ""
+    if file_rows:
+        file_table = (
+            '<h2 style="font-size:18px;margin:24px 0 8px">依檔案摘要</h2>'
+            "<table><thead><tr>"
+            "<th>檔案</th><th>命中數</th><th>位置明細</th>"
+            "</tr></thead><tbody>"
+            + "\n".join(file_rows)
+            + "</tbody></table>"
+        )
     body = (
-        '<div class="summary">'
+        issue_block
+        + '<div class="summary">'
         f'<div><strong>產生時間：</strong>{html_lib.escape(summary["generated_at"])}</div>'
         f'<div><strong>總命中數：</strong>{summary["total"]}</div>'
         f'<div style="margin-top:8px">{sev_pills or "<em>無命中</em>"}</div>'
         f'<div style="margin-top:8px;color:#555">類別：{cat_text}</div>'
         "</div>"
-        "<table><thead><tr>"
+        + file_table
+        + "<table><thead><tr>"
         "<th>嚴重度</th><th>偵測器</th><th>類別</th>"
-        "<th>命中值 (遮罩)</th><th>位置</th><th>上下文</th>"
+        "<th>命中值 (遮罩)</th><th>檔案 / 位置</th><th>上下文</th>"
         "</tr></thead><tbody>"
         + ("\n".join(rows) or "<tr><td colspan='6'>無命中</td></tr>")
         + "</tbody></table>"

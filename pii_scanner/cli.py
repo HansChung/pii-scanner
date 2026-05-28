@@ -21,13 +21,22 @@ from .scanners.file_scanner import scan_directory, scan_file
 from .scanners.text_scanner import scan_text
 
 
-def _output(findings: List[Finding], fmt: str, out_path: str | None) -> None:
+def _output(
+    findings: List[Finding],
+    fmt: str,
+    out_path: str | None,
+    scan_issues: list[dict] | None = None,
+) -> None:
     if fmt == "json":
-        content = render_json(findings)
+        content = render_json(findings, scan_issues=scan_issues)
     elif fmt == "html":
-        content = render_html(findings)
+        content = render_html(findings, scan_issues=scan_issues)
     else:
         content = render_terminal(findings, use_color=(out_path is None and sys.stdout.isatty()))
+        if scan_issues:
+            content += "\n無法掃描的檔案:\n"
+            for issue in scan_issues:
+                content += f"  - {issue['path']}: {issue['reason']}\n"
     if out_path:
         with open(out_path, "w", encoding="utf-8") as fp:
             fp.write(content)
@@ -85,11 +94,23 @@ def main(argv: list[str] | None = None) -> int:
         findings = scan_text(text, source="<stdin>" if args.text == "-" else "<argv>")
         _output(findings, args.format, args.output)
     elif args.cmd == "scan-file":
-        findings = scan_file(args.path)
-        _output(findings, args.format, args.output)
+        file_issues: list = []
+        findings = scan_file(args.path, issues=file_issues)
+        _output(
+            findings,
+            args.format,
+            args.output,
+            scan_issues=[i.to_dict() for i in file_issues],
+        )
     elif args.cmd == "scan-dir":
-        findings = scan_directory(args.path, suffixes=args.suffix)
-        _output(findings, args.format, args.output)
+        dir_issues: list = []
+        findings = scan_directory(args.path, suffixes=args.suffix, issues=dir_issues)
+        _output(
+            findings,
+            args.format,
+            args.output,
+            scan_issues=[i.to_dict() for i in dir_issues],
+        )
     elif args.cmd == "scan-url":
         from .scanners.web_scanner import scan_url
         findings = scan_url(args.url, verify_tls=not args.insecure)

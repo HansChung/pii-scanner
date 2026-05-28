@@ -21,6 +21,7 @@ from .document_reader import (
     is_document_file,
 )
 from .format_sniff import is_likely_binary, sniff_document_suffix
+from .scan_issue import ScanIssue
 
 DEFAULT_TEXT_SUFFIXES = {
     ".txt", ".md", ".rst", ".csv", ".tsv", ".log", ".json", ".jsonl",
@@ -100,21 +101,33 @@ def scan_file(
     *,
     detectors: Optional[Iterable[BaseDetector]] = None,
     max_bytes: int = MAX_FILE_BYTES,
+    issues: Optional[List[ScanIssue]] = None,
 ) -> List[Finding]:
-    """掃描單一檔案；遇到無法解碼的二進位檔回傳空清單。"""
+    """掃描單一檔案；無法讀取或解析時可選擇寫入 *issues* 並回傳空清單。"""
     p = Path(path)
     if is_document_file(p):
         try:
             data = p.read_bytes()[:max_bytes]
-        except OSError:
+        except OSError as exc:
+            if issues is not None:
+                issues.append(ScanIssue(str(p), f"無法讀取檔案：{exc}"))
             return []
         try:
             return scan_bytes(data, p.name, detectors=detectors)
-        except DocumentReadError:
+        except DocumentReadError as exc:
+            if issues is not None:
+                issues.append(ScanIssue(str(p), str(exc)))
             return []
 
     text = _read_text(p, max_bytes=max_bytes)
     if text is None:
+        if issues is not None:
+            issues.append(
+                ScanIssue(
+                    str(p),
+                    "無法解碼檔案內容（非支援格式、編碼錯誤或為二進位檔）",
+                )
+            )
         return []
     return detect_in_text(text, detectors=detectors, source=str(p))
 
@@ -147,9 +160,12 @@ def scan_directory(
     suffixes: Optional[Iterable[str]] = None,
     ignores: Optional[Iterable[str]] = None,
     max_bytes: int = MAX_FILE_BYTES,
+    issues: Optional[List[ScanIssue]] = None,
 ) -> List[Finding]:
-    """遞迴掃描整個目錄。"""
+    """遞迴掃描整個目錄；若傳入 *issues*，會記錄無法掃描的檔案路徑與原因。"""
     findings: List[Finding] = []
     for p in iter_files(root, suffixes=suffixes, ignores=ignores):
-        findings.extend(scan_file(p, detectors=detectors, max_bytes=max_bytes))
+        findings.extend(
+            scan_file(p, detectors=detectors, max_bytes=max_bytes, issues=issues)
+        )
     return findings
