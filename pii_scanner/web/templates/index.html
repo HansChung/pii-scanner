@@ -132,12 +132,14 @@
 
   <section class="panel hidden" data-panel="url">
     <label for="url">要掃描的 URL</label>
-    <input type="url" id="url" placeholder="https://example.com/page">
+    <p class="file-hint">可輸入一般網頁，或直接貼上 <strong>PDF / Word (.docx) / Excel</strong> 等文件的下載連結，系統會依格式逐頁或逐工作表掃描（與檔案上傳相同）。</p>
+    <input type="url" id="url" placeholder="https://example.com/page 或 https://example.com/files/report.pdf">
     <button class="primary" id="btn-url">抓取並掃描</button>
   </section>
 
   <section class="panel hidden" data-panel="site">
     <label for="site-url">起始 URL</label>
+    <p class="file-hint">爬取 HTML 頁面時，會一併跟進頁面上的 <strong>PDF / Word / Excel</strong> 下載連結並分析（計入「最多頁數」；單檔上限 5 MB）。</p>
     <input type="url" id="site-url" placeholder="https://example.com">
     <div class="row">
       <div>
