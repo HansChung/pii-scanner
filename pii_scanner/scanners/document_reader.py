@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Callable, Iterable, List, Optional
 
 from ..settings import MAX_DOCUMENT_ROWS, MAX_DOCUMENT_SHEETS
+from .spreadsheet_text import rows_to_scan_text
 
 # 二進位文件副檔名 → 擷取函式
 XLSX_SUFFIXES = {".xlsx", ".xlsm"}
@@ -54,18 +55,7 @@ def _cell_str(value: object) -> str:
 
 
 def _rows_to_text(rows: Iterable[Iterable[object]]) -> str:
-    lines: List[str] = []
-    count = 0
-    for row in rows:
-        if count >= MAX_DOCUMENT_ROWS:
-            lines.append("…(已達列數上限，其餘略過)")
-            break
-        cells = [_cell_str(c) for c in row]
-        line = "\t".join(c for c in cells if c)
-        if line:
-            lines.append(line)
-            count += 1
-    return "\n".join(lines)
+    return rows_to_scan_text(rows, max_rows=MAX_DOCUMENT_ROWS)
 
 
 def _extract_xlsx(data: bytes, filename: str) -> List[DocumentSegment]:
