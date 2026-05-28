@@ -119,9 +119,11 @@ uvicorn pii_scanner.web.app:app --host 0.0.0.0 --port 8000
 | OpenDocument 試算表 | `.ods` | 逐工作表（開放文件格式） |
 | OpenDocument 文字 | `.odt` | 段落與表格 |
 | Word | `.docx` | 段落與表格 |
+| PDF | `.pdf` | **逐頁**擷取文字；結果 `source` 顯示 `檔名#page=1` |
 
 Excel / ODS 若有多個分頁，每一頁各自擷取儲存格文字並掃描，命中結果會標示來源工作表。  
-環境變數 `PII_MAX_DOCUMENT_SHEETS`（預設 30）、`PII_MAX_DOCUMENT_ROWS`（預設 5000）可限制單檔規模。
+PDF 逐頁掃描；若 PDF 為掃描影像（無文字層），目前無法分析，需 OCR 後再上傳文字檔。  
+環境變數 `PII_MAX_DOCUMENT_SHEETS`（預設 30，亦適用 PDF 頁數）、`PII_MAX_DOCUMENT_ROWS`（預設 5000）可限制單檔規模。
 
 REST API 端點：
 

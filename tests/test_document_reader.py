@@ -1,12 +1,15 @@
 """Office / 開放文件格式掃描測試。"""
 
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
 
-from pii_scanner.scanners.document_reader import extract_document_segments
+from pii_scanner.scanners.document_reader import DocumentReadError, extract_document_segments
 from pii_scanner.scanners.file_scanner import scan_bytes
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _make_xlsx_bytes() -> bytes:
@@ -49,7 +52,23 @@ def test_scan_plain_text_still_works():
 
 
 def test_unsupported_extension():
-    from pii_scanner.scanners.document_reader import DocumentReadError
-
     with pytest.raises(DocumentReadError, match="不支援"):
-        extract_document_segments(b"data", "file.pdf")
+        extract_document_segments(b"data", "file.zip")
+
+
+def test_pdf_multi_page_segments():
+    data = (FIXTURES / "sample.pdf").read_bytes()
+    segments = extract_document_segments(data, "report.pdf")
+    sources = {s.source for s in segments}
+    assert "report.pdf#page=1" in sources
+    assert "report.pdf#page=2" in sources
+    page1 = next(s for s in segments if s.source.endswith("page=1"))
+    assert "0912345678" in page1.text
+
+
+def test_scan_pdf_finds_pii_per_page():
+    data = (FIXTURES / "sample.pdf").read_bytes()
+    findings = scan_bytes(data, "report.pdf")
+    assert any(f.detector == "taiwan_mobile" for f in findings)
+    assert any(f.detector == "email" for f in findings)
+    assert any("page=1" in (f.source or "") for f in findings)

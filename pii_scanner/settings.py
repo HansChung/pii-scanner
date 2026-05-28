@@ -32,7 +32,7 @@ HTTP_TIMEOUT = float(os.getenv("PII_HTTP_TIMEOUT", "15"))
 # 百家姓全文掃描預設關閉（網站掃描誤判率高）；設 PII_ENABLE_SURNAME_NAME=true 才啟用
 ENABLE_SURNAME_NAME = _bool_env("PII_ENABLE_SURNAME_NAME", False)
 
-# Office / 開放文件：單檔最多工作表數、每工作表最多列數（B1 保守預設）
+# Office / 開放文件 / PDF：工作表或 PDF 頁數上限、每工作表最多列數（B1 保守預設）
 MAX_DOCUMENT_SHEETS = _int_env("PII_MAX_DOCUMENT_SHEETS", 30)
 MAX_DOCUMENT_ROWS = _int_env("PII_MAX_DOCUMENT_ROWS", 5000)
 

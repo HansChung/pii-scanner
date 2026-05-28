@@ -3,6 +3,7 @@
 支援：
 - 純文字：TXT、CSV、JSON、HTML、原始碼等
 - Excel (.xlsx/.xlsm)：逐工作表掃描
+- PDF (.pdf)：逐頁掃描
 - 開放文件：ODS、ODT、DOCX
 """
 from __future__ import annotations

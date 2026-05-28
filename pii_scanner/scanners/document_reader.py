@@ -4,6 +4,7 @@
 - Excel (.xlsx, .xlsm)：逐工作表擷取儲存格
 - OpenDocument 試算表 (.ods)：逐工作表
 - OpenDocument 文字 (.odt)、Word (.docx)：段落與表格
+- PDF (.pdf)：逐頁擷取文字
 """
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ EXCEL_SUFFIXES = {".xlsx", ".xlsm"}
 ODS_SUFFIXES = {".ods"}
 ODT_SUFFIXES = {".odt"}
 DOCX_SUFFIXES = {".docx"}
+PDF_SUFFIXES = {".pdf"}
 
-DOCUMENT_SUFFIXES = EXCEL_SUFFIXES | ODS_SUFFIXES | ODT_SUFFIXES | DOCX_SUFFIXES
+DOCUMENT_SUFFIXES = EXCEL_SUFFIXES | ODS_SUFFIXES | ODT_SUFFIXES | DOCX_SUFFIXES | PDF_SUFFIXES
 
 
 @dataclass(frozen=True)
@@ -188,6 +190,42 @@ def _extract_docx(data: bytes, filename: str) -> List[DocumentSegment]:
     return [DocumentSegment(source=filename, text=text)]
 
 
+def _extract_pdf(data: bytes, filename: str) -> List[DocumentSegment]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise DocumentReadError("缺少 pypdf，無法讀取 PDF") from exc
+
+    try:
+        reader = PdfReader(BytesIO(data), strict=False)
+    except Exception as exc:
+        raise DocumentReadError(f"無法解析 PDF：{exc}") from exc
+
+    if reader.is_encrypted:
+        try:
+            reader.decrypt("")
+        except Exception as exc:
+            raise DocumentReadError("PDF 已加密，無法讀取") from exc
+
+    segments: List[DocumentSegment] = []
+    for idx, page in enumerate(reader.pages):
+        if idx >= MAX_DOCUMENT_SHEETS:
+            break
+        try:
+            raw = page.extract_text() or ""
+        except Exception:
+            raw = ""
+        text = raw.strip()
+        if text:
+            segments.append(DocumentSegment(source=f"{filename}#page={idx + 1}", text=text))
+
+    if not segments:
+        raise DocumentReadError(
+            "PDF 無可擷取文字；若為掃描影像 PDF（純圖片），需 OCR，目前不支援"
+        )
+    return segments
+
+
 _EXTRACTORS: dict[str, Callable[[bytes, str], List[DocumentSegment]]] = {}
 for suf in EXCEL_SUFFIXES:
     _EXTRACTORS[suf] = _extract_xlsx
@@ -197,6 +235,8 @@ for suf in ODT_SUFFIXES:
     _EXTRACTORS[suf] = _extract_odt
 for suf in DOCX_SUFFIXES:
     _EXTRACTORS[suf] = _extract_docx
+for suf in PDF_SUFFIXES:
+    _EXTRACTORS[suf] = _extract_pdf
 
 
 def supported_document_formats() -> List[str]:
