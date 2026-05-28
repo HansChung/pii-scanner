@@ -106,9 +106,22 @@ uvicorn pii_scanner.web.app:app --host 0.0.0.0 --port 8000
 開啟瀏覽器 <http://localhost:8000> 即可看到網頁介面，支援：
 
 - 貼上文字即時掃描
-- 上傳檔案掃描
+- 上傳檔案掃描（文字、Excel、開放文件格式，見下方）
 - 輸入單一 URL 掃描
 - 輸入起始 URL 進行整站爬取掃描
+
+### 上傳檔案格式
+
+| 類型 | 副檔名 | 說明 |
+| --- | --- | --- |
+| 文字 | `.txt` `.csv` `.json` `.html` `.md` `.log` 等 | 依 UTF-8 / Big5 解碼 |
+| Excel | `.xlsx` `.xlsm` | **逐工作表**掃描；結果 `source` 顯示 `檔名#工作表名` |
+| OpenDocument 試算表 | `.ods` | 逐工作表（開放文件格式） |
+| OpenDocument 文字 | `.odt` | 段落與表格 |
+| Word | `.docx` | 段落與表格 |
+
+Excel / ODS 若有多個分頁，每一頁各自擷取儲存格文字並掃描，命中結果會標示來源工作表。  
+環境變數 `PII_MAX_DOCUMENT_SHEETS`（預設 30）、`PII_MAX_DOCUMENT_ROWS`（預設 5000）可限制單檔規模。
 
 REST API 端點：
 
