@@ -5,165 +5,634 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>個資掃描器 PII Scanner</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f6fb;
+    --bg-grad-1: #eef2ff;
+    --bg-grad-2: #f6f8fc;
+    --surface: #ffffff;
+    --surface-2: #f7f9ff;
+    --surface-inset: #f1f4fb;
+    --border: #e2e6f0;
+    --border-strong: #c8cce0;
+    --text: #1a1f33;
+    --text-soft: #4a5074;
+    --text-mute: #6a7194;
+    --brand: #4f46e5;
+    --brand-2: #6366f1;
+    --brand-soft: #eef2ff;
+    --brand-ring: rgba(79, 70, 229, .25);
+    --critical: #dc2626; --critical-bg: #fee2e2; --critical-soft: #fef2f2;
+    --high: #ea580c;    --high-bg: #ffedd5;    --high-soft: #fff7ed;
+    --medium: #ca8a04;  --medium-bg: #fef3c7;  --medium-soft: #fffbeb;
+    --low: #2563eb;     --low-bg: #dbeafe;     --low-soft: #eff6ff;
+    --ok: #16a34a; --ok-bg: #dcfce7;
+    --warn: #b45309; --warn-bg: #fef3c7;
+    --err: #b91c1c; --err-bg: #fee2e2;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 1px rgba(15, 23, 42, .03);
+    --shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 10px 30px -12px rgba(15, 23, 42, .10);
+    --shadow-lg: 0 8px 24px -8px rgba(79, 70, 229, .18), 0 30px 60px -30px rgba(15, 23, 42, .25);
+    --radius: 14px;
+    --radius-sm: 10px;
+    --radius-pill: 999px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1020;
+      --bg-grad-1: #11173a;
+      --bg-grad-2: #0b1020;
+      --surface: #151b34;
+      --surface-2: #1b223e;
+      --surface-inset: #11172e;
+      --border: #2b3357;
+      --border-strong: #3a4374;
+      --text: #e6e8f5;
+      --text-soft: #b0b6d4;
+      --text-mute: #8a90b3;
+      --brand: #818cf8;
+      --brand-2: #a5b4fc;
+      --brand-soft: #1f244a;
+      --brand-ring: rgba(129, 140, 248, .35);
+      --critical-bg: #3a1818; --critical-soft: #2a1212;
+      --high-bg: #3a2410; --high-soft: #281708;
+      --medium-bg: #36280f; --medium-soft: #2a1f0b;
+      --low-bg: #16224a; --low-soft: #0f1936;
+      --ok-bg: #0d2818; --warn-bg: #36280f; --err-bg: #3a1818;
+      --shadow: 0 1px 3px rgba(0,0,0,.4), 0 10px 30px -12px rgba(0,0,0,.55);
+      --shadow-lg: 0 8px 24px -8px rgba(129, 140, 248, .25), 0 30px 60px -30px rgba(0,0,0,.6);
+    }
+  }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    font-family: -apple-system,"Segoe UI",Roboto,"PingFang TC","Microsoft JhengHei",sans-serif;
-    margin: 0; background: linear-gradient(180deg,#f7f8fc 0%,#eef0fa 100%);
-    color: #1f2330; min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
+                 "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    margin: 0;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 600px at 10% -10%, var(--brand-soft) 0%, transparent 55%),
+      radial-gradient(900px 500px at 110% 0%, #e0f2fe33 0%, transparent 60%),
+      linear-gradient(180deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
+    background-attachment: fixed;
+    min-height: 100%;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  header { padding: 32px 24px 12px; max-width: 1100px; margin: 0 auto; }
-  header h1 { margin: 0 0 6px; font-size: 28px; }
-  header p { margin: 0; color: #5b607a; }
-  main { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; }
-  .tabs { display: flex; gap: 4px; margin: 24px 0 0; border-bottom: 1px solid #d6d9e6; }
+  a { color: var(--brand); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* Top bar */
+  .topbar {
+    backdrop-filter: saturate(180%) blur(10px);
+    -webkit-backdrop-filter: saturate(180%) blur(10px);
+    background: color-mix(in oklab, var(--surface) 75%, transparent);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .topbar-inner {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px;
+    max-width: 1180px; margin: 0 auto;
+  }
+  .brand-mark {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--brand) 0%, #22d3ee 100%);
+    display: grid; place-items: center; color: white;
+    box-shadow: 0 6px 20px -6px var(--brand-ring);
+  }
+  .brand-text { line-height: 1.1; }
+  .brand-text strong { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
+  .brand-text small { color: var(--text-mute); font-size: 12px; }
+  .topbar nav { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .topbar nav a {
+    font-size: 13px; color: var(--text-soft); padding: 8px 12px; border-radius: 8px;
+  }
+  .topbar nav a:hover { background: var(--surface-inset); text-decoration: none; }
+  .badge-dot {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--text-mute);
+  }
+  .badge-dot::before {
+    content: ""; width: 8px; height: 8px; border-radius: 999px;
+    background: var(--ok); box-shadow: 0 0 0 4px color-mix(in oklab, var(--ok) 20%, transparent);
+  }
+
+  /* Hero header */
+  header.hero {
+    padding: 40px 0 8px;
+  }
+  header.hero h1 {
+    margin: 0 0 8px; font-size: 32px; line-height: 1.2; letter-spacing: -.5px;
+    background: linear-gradient(180deg, var(--text) 0%, color-mix(in oklab, var(--text) 70%, var(--brand)) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header.hero p { margin: 0; color: var(--text-soft); font-size: 15px; }
+  .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; padding: 5px 10px; border-radius: var(--radius-pill);
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-soft);
+  }
+  .chip svg { width: 12px; height: 12px; }
+
+  main { padding: 0 0 56px; }
+
+  /* Notice */
+  .notice-card {
+    margin-top: 22px;
+    background: linear-gradient(180deg, color-mix(in oklab, var(--warn-bg) 80%, transparent), var(--surface));
+    border: 1px solid color-mix(in oklab, var(--warn) 25%, var(--border));
+    border-left: 4px solid var(--warn);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    color: var(--text);
+    box-shadow: var(--shadow-sm);
+  }
+  .notice-card .title {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 700; color: var(--warn); margin-bottom: 8px;
+  }
+  .notice-card p { margin: 4px 0; font-size: 14px; line-height: 1.65; color: var(--text-soft); }
+  .notice-card ul { margin: 8px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.7; color: var(--text-soft); }
+  .notice-card strong { color: var(--text); }
+
+  /* Card */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .card-pad { padding: 22px 24px; }
+
+  /* Tabs (segmented control) */
+  .tabs {
+    margin: 28px 0 16px;
+    display: inline-flex;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow-sm);
+    overflow-x: auto;
+    max-width: 100%;
+  }
   .tab {
-    padding: 10px 18px; border: none; background: transparent;
-    cursor: pointer; font-size: 14px; color: #4a4f66;
-    border-bottom: 2px solid transparent;
+    border: none; background: transparent; cursor: pointer;
+    padding: 9px 16px; border-radius: 9px;
+    font-size: 14px; color: var(--text-soft); font-weight: 500;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: background-color .18s, color .18s, transform .18s;
+    white-space: nowrap;
   }
-  .tab.active { color: #2a3da7; border-bottom-color: #2a3da7; font-weight: 600; }
-  .panel {
-    background: #fff; padding: 20px; border-radius: 0 0 12px 12px;
-    box-shadow: 0 4px 16px rgba(20,30,80,.06);
+  .tab svg { width: 16px; height: 16px; }
+  .tab:hover { color: var(--text); background: var(--surface-inset); }
+  .tab.active {
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-2) 100%);
+    color: white; font-weight: 600;
+    box-shadow: 0 6px 16px -6px var(--brand-ring);
   }
+  .tab.active:hover { color: white; }
+
+  /* Panels */
+  .panel { padding: 24px; }
   .panel.hidden { display: none; }
-  textarea, input[type=url], input[type=number] {
-    width: 100%; padding: 10px 12px; border: 1px solid #c8cce0; border-radius: 8px;
+  .panel h2 {
+    margin: 0 0 4px; font-size: 18px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel .desc { margin: 0 0 16px; font-size: 13.5px; color: var(--text-soft); line-height: 1.65; }
+  .panel .desc strong { color: var(--text); }
+
+  /* Inputs */
+  label.field-label {
+    display: block; font-size: 13px; font-weight: 600;
+    color: var(--text-soft); margin: 0 0 6px;
+  }
+  textarea, input[type=text], input[type=url], input[type=number] {
+    width: 100%; padding: 12px 14px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+    border-radius: var(--radius-sm);
     font-size: 14px; font-family: inherit;
+    transition: border-color .15s, box-shadow .15s, background-color .15s;
   }
-  textarea { min-height: 160px; resize: vertical; }
-  label { font-size: 13px; color: #4a4f66; display: block; margin: 8px 0 4px; }
+  textarea { min-height: 180px; resize: vertical; line-height: 1.55; }
+  textarea:focus, input:focus {
+    outline: none; border-color: var(--brand);
+    box-shadow: 0 0 0 4px var(--brand-ring);
+    background: var(--surface);
+  }
   .row { display: flex; gap: 12px; flex-wrap: wrap; }
-  .row > div { flex: 1; min-width: 140px; }
+  .row > div { flex: 1; min-width: 160px; }
+
+  /* Buttons */
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+  button.primary, button.secondary {
+    appearance: none; border: none; cursor: pointer;
+    font-size: 14px; font-weight: 600;
+    padding: 11px 22px; border-radius: 10px;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: transform .12s, box-shadow .15s, background-color .15s;
+  }
   button.primary {
-    margin-top: 12px; padding: 10px 22px; border: none; border-radius: 8px;
-    background: #2a3da7; color: #fff; font-weight: 600; cursor: pointer; font-size: 14px;
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-2) 100%);
+    color: #fff;
+    box-shadow: 0 6px 16px -6px var(--brand-ring);
   }
-  button.primary:hover { background: #1e2e85; }
-  button.primary[disabled] { opacity: .6; cursor: not-allowed; }
-  .results { margin-top: 24px; }
-  .summary {
-    background: #fff; padding: 16px 20px; border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(20,30,80,.06); margin-bottom: 16px;
+  button.primary:hover:not([disabled]) { transform: translateY(-1px); box-shadow: 0 10px 22px -8px var(--brand-ring); }
+  button.primary[disabled] { opacity: .65; cursor: not-allowed; }
+  button.secondary {
+    background: var(--surface-inset); color: var(--text);
+    border: 1px solid var(--border);
   }
-  .pill {
-    display: inline-block; padding: 2px 10px; border-radius: 999px;
-    font-size: 12px; margin-right: 6px; font-weight: 600;
+  button.secondary:hover { background: var(--surface-2); }
+
+  /* File drop */
+  .filedrop {
+    border: 2px dashed var(--border-strong);
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    padding: 28px;
+    text-align: center;
+    color: var(--text-soft);
+    transition: background-color .15s, border-color .15s, transform .15s;
+    cursor: pointer;
   }
-  .pill.critical { background: #fde2e2; color: #a40000; }
-  .pill.high     { background: #ffe9d6; color: #aa4400; }
-  .pill.medium   { background: #fff5d1; color: #7a5500; }
-  .pill.low      { background: #dde9ff; color: #1d3d8a; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px;
-          overflow: hidden; box-shadow: 0 4px 16px rgba(20,30,80,.06); }
-  th, td { padding: 10px 12px; border-bottom: 1px solid #eef; font-size: 13px;
-           vertical-align: top; text-align: left; }
-  th { background: #f0f2fa; }
-  tr:last-child td { border-bottom: none; }
-  td.value { font-family: ui-monospace, Menlo, Consolas, monospace; }
-  td.context { color: #555; font-size: 12px; max-width: 360px; word-break: break-all; }
-  .empty { padding: 24px; color: #6a708a; text-align: center; }
-  .error { background: #fde2e2; color: #800; padding: 12px 16px; border-radius: 8px; margin-top: 12px; }
-  .notice {
-    max-width: 1100px; margin: 0 auto; padding: 16px 24px 0;
+  .filedrop:hover, .filedrop.drag {
+    background: var(--brand-soft); border-color: var(--brand);
+    color: var(--text);
   }
-  .notice-box {
-    background: #fff8e6; border: 1px solid #f0c96e; border-left: 4px solid #d48806;
-    border-radius: 10px; padding: 14px 18px; color: #5c4a1f;
-    box-shadow: 0 2px 8px rgba(180,120,0,.08);
+  .filedrop svg { width: 32px; height: 32px; opacity: .8; margin-bottom: 8px; }
+  .filedrop strong { color: var(--text); font-size: 15px; }
+  .filedrop small { display: block; margin-top: 4px; font-size: 12.5px; color: var(--text-mute); }
+  .filedrop input[type=file] { display: none; }
+  .filename {
+    margin-top: 12px; padding: 10px 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; font-size: 13.5px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
-  .notice-box strong { display: block; font-size: 15px; color: #874d00; margin-bottom: 6px; }
-  .notice-box p { margin: 0; font-size: 14px; line-height: 1.65; }
-  .notice-box ul { margin: 8px 0 0; padding-left: 1.2em; font-size: 14px; line-height: 1.65; }
-  .notice-box li { margin: 4px 0; }
-  .file-hint { font-size: 13px; color: #5b607a; margin: 4px 0 10px; line-height: 1.6; }
+  .filename .name { font-weight: 600; word-break: break-all; }
+  .filename .size { color: var(--text-mute); font-size: 12px; }
+
+  /* AI option */
   .ai-option {
-    background: #f0f4ff; border: 1px solid #c5d0f5; border-radius: 10px;
-    padding: 12px 16px; margin: 16px 0 0;
+    margin-top: 16px;
+    background: var(--brand-soft);
+    border: 1px solid color-mix(in oklab, var(--brand) 25%, var(--border));
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    color: var(--text);
   }
-  .ai-option label { font-size: 14px; cursor: pointer; }
-  .ai-option input { margin-right: 8px; }
-  .ai-option .hint { font-size: 12px; color: #5b607a; margin: 6px 0 0 24px; line-height: 1.5; }
+  .ai-option .label-row { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; }
+  .ai-option input[type=checkbox] {
+    appearance: none; width: 18px; height: 18px; border-radius: 5px;
+    border: 1.5px solid var(--border-strong); background: var(--surface);
+    display: inline-block; position: relative; cursor: pointer;
+    transition: background-color .15s, border-color .15s;
+  }
+  .ai-option input[type=checkbox]:checked { background: var(--brand); border-color: var(--brand); }
+  .ai-option input[type=checkbox]:checked::after {
+    content: ""; position: absolute; left: 5px; top: 2px;
+    width: 5px; height: 9px; border: solid white; border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .ai-option .hint { margin: 8px 0 0 28px; font-size: 12.5px; color: var(--text-soft); line-height: 1.55; }
+
+  /* Status / error */
+  .error {
+    margin-top: 16px;
+    background: var(--err-bg); color: var(--err);
+    border: 1px solid color-mix(in oklab, var(--err) 30%, var(--border));
+    border-left: 4px solid var(--err);
+    padding: 12px 16px; border-radius: var(--radius-sm);
+    font-size: 14px;
+  }
+
+  /* Results */
+  .results { margin-top: 24px; display: grid; gap: 16px; }
+
+  /* Stats */
+  .stats {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .stat {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+    position: relative; overflow: hidden;
+  }
+  .stat .label { font-size: 12px; color: var(--text-mute); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .stat .value { font-size: 28px; font-weight: 700; margin-top: 4px; line-height: 1.1; }
+  .stat.critical { background: linear-gradient(180deg, var(--critical-bg), var(--surface)); border-color: color-mix(in oklab, var(--critical) 25%, var(--border)); }
+  .stat.high     { background: linear-gradient(180deg, var(--high-bg), var(--surface)); border-color: color-mix(in oklab, var(--high) 25%, var(--border)); }
+  .stat.medium   { background: linear-gradient(180deg, var(--medium-bg), var(--surface)); border-color: color-mix(in oklab, var(--medium) 25%, var(--border)); }
+  .stat.low      { background: linear-gradient(180deg, var(--low-bg), var(--surface)); border-color: color-mix(in oklab, var(--low) 25%, var(--border)); }
+  .stat.total .value {
+    background: linear-gradient(180deg, var(--brand) 0%, var(--brand-2) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  /* Pills */
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; font-weight: 600; line-height: 1.6;
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 999px; }
+  .pill.critical { background: var(--critical-bg); color: var(--critical); }
+  .pill.critical::before { background: var(--critical); }
+  .pill.high     { background: var(--high-bg); color: var(--high); }
+  .pill.high::before { background: var(--high); }
+  .pill.medium   { background: var(--medium-bg); color: var(--medium); }
+  .pill.medium::before { background: var(--medium); }
+  .pill.low      { background: var(--low-bg); color: var(--low); }
+  .pill.low::before { background: var(--low); }
+  .badge {
+    display: inline-flex; padding: 3px 8px; border-radius: 6px;
+    background: var(--surface-inset); color: var(--text-soft);
+    font-size: 12px; font-weight: 500;
+  }
+
+  /* Section card with header */
+  .section {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .section-head {
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: linear-gradient(180deg, var(--surface) 0%, color-mix(in oklab, var(--surface) 92%, var(--surface-inset)) 100%);
+  }
+  .section-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; color: var(--text); display: inline-flex; align-items: center; gap: 8px; }
+  .section-head .right { margin-left: auto; font-size: 12.5px; color: var(--text-mute); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; }
+  table.modern {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    font-size: 13.5px;
+  }
+  table.modern th, table.modern td {
+    padding: 12px 14px; text-align: left; vertical-align: top;
+    border-bottom: 1px solid var(--border);
+  }
+  table.modern th {
+    background: var(--surface-inset);
+    color: var(--text-soft); font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: .5px;
+    position: sticky; top: 0;
+  }
+  table.modern tr:last-child td { border-bottom: none; }
+  table.modern tbody tr:hover td { background: color-mix(in oklab, var(--surface-inset) 50%, transparent); }
+  td.mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-weight: 600; }
+  td.context { color: var(--text-soft); font-size: 12.5px; max-width: 380px; word-break: break-all; line-height: 1.55; }
+  td .src { color: var(--text-mute); font-size: 12px; word-break: break-all; margin-top: 2px; }
+  td .name { font-weight: 600; }
+
+  /* Meta info chips */
+  .meta-row { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; }
+  .meta-row .item { font-size: 13px; color: var(--text-soft); display: inline-flex; align-items: center; gap: 6px; }
+  .meta-row .item strong { color: var(--text); }
+  .meta-row .ai-tag {
+    background: var(--brand-soft); color: var(--brand);
+    padding: 3px 10px; border-radius: var(--radius-pill);
+    font-size: 12px; font-weight: 600; border: 1px solid color-mix(in oklab, var(--brand) 25%, var(--border));
+  }
+
+  /* Warn box for scan_issues */
   .warn-box {
-    background: #fff5eb; border: 1px solid #f0c090; border-left: 4px solid #aa4400;
-    border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px;
+    background: linear-gradient(180deg, color-mix(in oklab, var(--warn-bg) 80%, transparent), var(--surface));
+    border: 1px solid color-mix(in oklab, var(--warn) 30%, var(--border));
+    border-left: 4px solid var(--warn);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    box-shadow: var(--shadow-sm);
   }
-  .warn-box ul { margin: 8px 0 0; padding-left: 1.2em; }
-  .sub-src { color: #888; font-size: 12px; word-break: break-all; }
-  h3.section-title { font-size: 16px; margin: 20px 0 8px; color: #2a3da7; }
+  .warn-box .title { display: flex; align-items: center; gap: 8px; color: var(--warn); font-weight: 700; font-size: 14px; }
+  .warn-box ul { margin: 8px 0 0; padding-left: 20px; font-size: 13.5px; line-height: 1.7; color: var(--text-soft); }
+  .warn-box code { background: var(--surface-inset); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
+
+  /* Empty state */
+  .empty {
+    padding: 36px 20px; text-align: center; color: var(--text-mute);
+    background: var(--surface); border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+  }
+  .empty svg { width: 40px; height: 40px; opacity: .55; margin-bottom: 10px; }
+  .empty .big { font-size: 16px; color: var(--text); font-weight: 600; margin-bottom: 4px; }
+  .empty .sub { font-size: 13px; }
+
+  /* Loading spinner */
+  .spinner {
+    width: 14px; height: 14px; border-radius: 999px;
+    border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Loading skeleton */
+  .skeleton {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 24px;
+    display: grid; gap: 14px;
+  }
+  .skeleton .line {
+    height: 12px; border-radius: 6px;
+    background: linear-gradient(90deg, var(--surface-inset) 25%, color-mix(in oklab, var(--surface-inset) 60%, var(--surface)) 50%, var(--surface-inset) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* Responsive */
+  @media (max-width: 720px) {
+    header.hero h1 { font-size: 26px; }
+    .panel { padding: 18px; }
+    .stat .value { font-size: 22px; }
+    .tabs { width: 100%; }
+    .tab { flex: 1; justify-content: center; }
+  }
+
+  /* Subtle scrollbar */
+  .table-wrap::-webkit-scrollbar, textarea::-webkit-scrollbar { height: 10px; width: 10px; }
+  .table-wrap::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
 </style>
 </head>
 <body>
-<div class="notice">
-  <div class="notice-box" role="alert">
-    <strong>使用須知</strong>
-    <p>本系統僅作為個資<strong>協同檢查</strong>之輔助工具，掃描結果<strong>無法保證 100% 偵測</strong>所有疑似個資，仍可能存在漏判或誤判，不可僅憑系統結果即認定資料合規或無虞。</p>
-    <ul>
-      <li>資料正式<strong>上傳、發布或對外提供前</strong>，務必由<strong>至少兩人覆核</strong>（雙人覆驗）確認內容。</li>
-      <li>網頁頁尾<strong>資料維護、網頁建置、承辦人</strong>等依法須公開之聯絡姓名，系統預設<strong>不列入個資告警</strong>。</li>
-      <li><strong>資訊處</strong>僅提供本系統之檢測服務；最終是否涉及個資、是否可對外使用，以及相關<strong>法遵責任，仍由資料提供單位及經辦人員自行負責</strong>。</li>
-    </ul>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand-mark" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+    </div>
+    <div class="brand-text">
+      <strong>PII Scanner</strong><br>
+      <small>個人資料自動掃描器</small>
+    </div>
+    <nav>
+      <span class="badge-dot">服務運作中</span>
+      <a href="/admin" title="需 PII_ADMIN_PASSWORD">白名單管理</a>
+    </nav>
   </div>
 </div>
-<header>
-  <h1>個資 (PII) 自動掃描器</h1>
-  <p>支援台灣身分證、手機、信用卡、Email、統編、車牌、IP、護照、健保卡號等格式</p>
-  <p style="margin-top:8px;font-size:13px"><a href="/admin" style="color:#2a3da7">管理白名單 →</a>（需設定 PII_ADMIN_PASSWORD）</p>
-</header>
-<main>
-  <div class="tabs">
-    <button class="tab active" data-tab="text">文字</button>
-    <button class="tab" data-tab="file">檔案</button>
-    <button class="tab" data-tab="url">單一網址</button>
-    <button class="tab" data-tab="site">整個網站</button>
-  </div>
 
-  <div class="ai-option" id="ai-box" style="display:none">
-    <label><input type="checkbox" id="use-ai"> <strong>Azure AI 增強分析</strong>（選用，可能產生 Azure 費用）</label>
-    <p class="hint" id="ai-hint">勾選後會額外呼叫 Azure AI Language PII API，加強姓名等語意偵測。預設關閉以控制預算；單次最多分析 <span id="ai-max-chars">5000</span> 字。</p>
-  </div>
+<div class="container">
+  <header class="hero">
+    <h1>個資 (PII) 自動掃描</h1>
+    <p>檢測台灣身分證、健保卡、護照、信用卡、手機、Email、車牌、IP、住址等敏感資料；支援文字、檔案、URL 與整站掃描。</p>
+    <div class="chips" aria-label="支援偵測格式">
+      <span class="chip">身分證</span>
+      <span class="chip">手機</span>
+      <span class="chip">Email</span>
+      <span class="chip">信用卡</span>
+      <span class="chip">統編</span>
+      <span class="chip">護照</span>
+      <span class="chip">健保卡</span>
+      <span class="chip">住址</span>
+      <span class="chip">車牌</span>
+      <span class="chip">IP</span>
+      <span class="chip">中文姓名</span>
+    </div>
+  </header>
 
-  <section class="panel" data-panel="text">
-    <label for="text">貼上要檢查的文字</label>
-    <textarea id="text" placeholder="例如：客戶 王小明 手機 0912-345-678 身分證 A123456789 …"></textarea>
-    <button class="primary" id="btn-text">開始掃描</button>
-  </section>
-
-  <section class="panel hidden" data-panel="file">
-    <label for="file">選擇檔案</label>
-    <p class="file-hint">支援格式：<strong>文字檔</strong>（.txt .csv .json .html .log .md .xml 等）、<strong>Excel</strong>（.xlsx .xlsm .xls，逐工作表掃描）、<strong>PDF</strong>（.pdf，逐頁掃描）、<strong>開放文件</strong>（.ods .odt）、<strong>Word</strong>（.docx）。掃描影像 PDF（無文字層）目前不支援。</p>
-    <input type="file" id="file" accept=".txt,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.md,.log,.xlsx,.xlsm,.xls,.pdf,.ods,.odt,.docx">
-    <button class="primary" id="btn-file">上傳並掃描</button>
-  </section>
-
-  <section class="panel hidden" data-panel="url">
-    <label for="url">要掃描的 URL</label>
-    <p class="file-hint">可輸入一般網頁，或直接貼上 <strong>PDF / Word (.docx) / Excel</strong> 下載連結。結果會依<strong>頁面或下載檔</strong>彙總，文件格式會標示工作表或頁碼。</p>
-    <input type="url" id="url" placeholder="https://example.com/page 或 https://example.com/files/report.pdf">
-    <button class="primary" id="btn-url">抓取並掃描</button>
-  </section>
-
-  <section class="panel hidden" data-panel="site">
-    <label for="site-url">起始 URL</label>
-    <p class="file-hint">爬取 HTML 頁面時會跟進 <strong>PDF / Word / Excel</strong> 下載連結。報告依<strong>各 URL / 下載檔</strong>列出命中摘要；無法抓取或解析的連結會單獨列出。</p>
-    <input type="url" id="site-url" placeholder="https://example.com">
-    <div class="row">
-      <div>
-        <label for="max-pages">最多頁數</label>
-        <input type="number" id="max-pages" value="10" min="1" max="10">
+  <main>
+    <div class="notice-card" role="alert">
+      <div class="title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+        使用須知
       </div>
-      <div>
-        <label for="max-depth">最大深度</label>
-        <input type="number" id="max-depth" value="1" min="0" max="5">
+      <p>本系統僅作為個資<strong>協同檢查</strong>之輔助工具，掃描結果<strong>無法保證 100% 偵測</strong>所有疑似個資，仍可能存在漏判或誤判，不可僅憑系統結果即認定資料合規或無虞。</p>
+      <ul>
+        <li>資料正式<strong>上傳、發布或對外提供前</strong>，務必由<strong>至少兩人覆核</strong>（雙人覆驗）確認內容。</li>
+        <li>網頁頁尾<strong>資料維護、網頁建置、承辦人</strong>等依法須公開之聯絡姓名，系統預設<strong>不列入個資告警</strong>。</li>
+        <li><strong>資訊處</strong>僅提供本系統之檢測服務；最終是否涉及個資、是否可對外使用，以及相關<strong>法遵責任，仍由資料提供單位及經辦人員自行負責</strong>。</li>
+      </ul>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="text" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+        文字
+      </button>
+      <button class="tab" data-tab="file" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        檔案上傳
+      </button>
+      <button class="tab" data-tab="url" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        單一網址
+      </button>
+      <button class="tab" data-tab="site" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        整個網站
+      </button>
+    </div>
+
+    <div class="card">
+      <section class="panel" data-panel="text">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+          直接貼上文字
+        </h2>
+        <p class="desc">適合快速檢查 Email 草稿、表單欄位、後台輸入字串等。</p>
+        <label class="field-label" for="text">要檢查的文字內容</label>
+        <textarea id="text" placeholder="例如：客戶 王小明 手機 0912-345-678 身分證 A123456789 信用卡 4532-1234-5678-9010 …"></textarea>
+        <div class="actions">
+          <button class="primary" id="btn-text">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            開始掃描
+          </button>
+        </div>
+      </section>
+
+      <section class="panel hidden" data-panel="file">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          上傳檔案掃描
+        </h2>
+        <p class="desc">
+          支援：<strong>文字檔</strong>（.txt .csv .json .html .log .md .xml 等）、<strong>Excel</strong>（.xlsx .xlsm .xls，逐工作表）、<strong>PDF</strong>（.pdf，逐頁）、<strong>開放文件</strong>（.ods .odt）、<strong>Word</strong>（.docx）。掃描影像 PDF（無文字層）目前不支援。
+        </p>
+        <label class="filedrop" id="filedrop" for="file">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div><strong>點此選擇檔案</strong>，或將檔案拖曳到這裡</div>
+          <small>單檔上限 5 MB；Excel / PDF 會自動逐工作表 / 逐頁分析</small>
+          <input type="file" id="file" accept=".txt,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.md,.log,.xlsx,.xlsm,.xls,.pdf,.ods,.odt,.docx">
+        </label>
+        <div class="filename" id="filename-info" style="display:none">
+          <span class="name" id="filename-name">—</span>
+          <span class="size" id="filename-size"></span>
+        </div>
+        <div class="actions">
+          <button class="primary" id="btn-file">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            上傳並掃描
+          </button>
+        </div>
+      </section>
+
+      <section class="panel hidden" data-panel="url">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          單一網址掃描
+        </h2>
+        <p class="desc">可輸入一般網頁，或直接貼上 <strong>PDF / Word (.docx) / Excel</strong> 下載連結，文件會逐頁或逐工作表分析。</p>
+        <label class="field-label" for="url">要掃描的 URL</label>
+        <input type="url" id="url" placeholder="https://example.com/page  或  https://example.com/files/report.pdf">
+        <div class="actions">
+          <button class="primary" id="btn-url">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            抓取並掃描
+          </button>
+        </div>
+      </section>
+
+      <section class="panel hidden" data-panel="site">
+        <h2>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          整個網站爬取
+        </h2>
+        <p class="desc">爬取 HTML 頁面時會跟進 <strong>PDF / Word / Excel</strong> 下載連結；無法抓取或解析的連結會單獨列出。</p>
+        <label class="field-label" for="site-url">起始 URL</label>
+        <input type="url" id="site-url" placeholder="https://example.com">
+        <div class="row" style="margin-top:12px">
+          <div>
+            <label class="field-label" for="max-pages">最多頁數</label>
+            <input type="number" id="max-pages" value="10" min="1" max="10">
+          </div>
+          <div>
+            <label class="field-label" for="max-depth">最大深度</label>
+            <input type="number" id="max-depth" value="1" min="0" max="5">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="primary" id="btn-site">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6"/><path d="M12 17v6"/><path d="m4.22 4.22 4.24 4.24"/><path d="m15.54 15.54 4.24 4.24"/><path d="M1 12h6"/><path d="M17 12h6"/><path d="m4.22 19.78 4.24-4.24"/><path d="m15.54 8.46 4.24-4.24"/></svg>
+            開始爬取掃描
+          </button>
+        </div>
+      </section>
+
+      <div class="ai-option" id="ai-box" style="display:none; margin: 0 24px 24px;">
+        <label class="label-row" for="use-ai">
+          <input type="checkbox" id="use-ai">
+          <span><strong>Azure AI 增強分析</strong>（選用，可能產生 Azure 費用）</span>
+        </label>
+        <p class="hint">勾選後會額外呼叫 Azure AI Language PII API，加強姓名等語意偵測。預設關閉以控制預算；單次最多分析 <span id="ai-max-chars">5000</span> 字。</p>
       </div>
     </div>
-    <button class="primary" id="btn-site">開始爬取掃描</button>
-  </section>
 
-  <div id="error" class="error" style="display:none"></div>
-  <div class="results" id="results"></div>
-</main>
+    <div id="error" class="error" style="display:none"></div>
+    <div class="results" id="results"></div>
+  </main>
+</div>
 
 <script>
 const tabs = document.querySelectorAll('.tab');
@@ -193,16 +662,48 @@ function aiChecked() {
   const el = document.getElementById('use-ai');
   return el && el.checked;
 }
-
-function appendAi(fd) {
-  fd.append('use_ai', aiChecked() ? 'true' : 'false');
-}
+function appendAi(fd) { fd.append('use_ai', aiChecked() ? 'true' : 'false'); }
 
 function showError(msg) {
   errEl.style.display = 'block';
   errEl.textContent = msg;
+  errEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function clearError() { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+/* File drop UX */
+(function bindFileDrop() {
+  const drop = document.getElementById('filedrop');
+  const input = document.getElementById('file');
+  const info = document.getElementById('filename-info');
+  const nameEl = document.getElementById('filename-name');
+  const sizeEl = document.getElementById('filename-size');
+  if (!drop || !input) return;
+  function fmtSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function show(file) {
+    if (!file) { info.style.display = 'none'; return; }
+    nameEl.textContent = file.name;
+    sizeEl.textContent = fmtSize(file.size);
+    info.style.display = 'flex';
+  }
+  input.addEventListener('change', () => show(input.files[0]));
+  ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); e.stopPropagation(); drop.classList.add('drag');
+  }));
+  ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove('drag');
+  }));
+  drop.addEventListener('drop', e => {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+      input.files = e.dataTransfer.files;
+      show(e.dataTransfer.files[0]);
+    }
+  });
+})();
 
 function splitSource(source) {
   if (!source) return { file: null, location: null };
@@ -231,117 +732,181 @@ function fileDisplayName(fileKey) {
   return fileKey.split(/[/\\]/).pop() || fileKey;
 }
 
-function renderResults(data) {
-  clearError();
-  const s = data.summary || { total: 0, by_severity: {}, by_category: {} };
-  let severityPills = '';
-  for (const k of ['critical','high','medium','low']) {
-    if (s.by_severity[k]) {
-      severityPills += `<span class="pill ${k}">${k}: ${s.by_severity[k]}</span>`;
-    }
-  }
-  const categories = Object.entries(s.by_category || {})
-    .map(([k,v]) => `${k}=${v}`).join('、') || '無';
-  let html = `<div class="summary">
-    <div><strong>命中數：</strong>${s.total}</div>
-    <div style="margin-top:6px">${severityPills || '<em>無命中</em>'}</div>
-    <div style="margin-top:6px;color:#555">類別：${categories}</div>`;
-  if (data.meta) {
-    if (data.meta.scanned_file) {
-      html += `<div style="margin-top:8px;color:#555;font-size:13px">掃描檔案：<strong>${escapeHtml(data.meta.scanned_file)}</strong></div>`;
-    }
-    if (data.meta.scanned_url) {
-      html += `<div style="margin-top:8px;color:#555;font-size:13px">掃描網址：<strong>${escapeHtml(data.meta.scanned_url)}</strong>`;
-      if (data.meta.pages_scanned != null) {
-        html += ` · 已掃描 ${data.meta.pages_scanned} 個 URL`;
-      }
-      html += `</div>`;
-    }
-    if (data.meta.ai_used) {
-      html += `<div style="margin-top:8px;color:#1d3d8a;font-size:13px">🤖 已使用 Azure AI 增強（分析 ${data.meta.ai_chars_analyzed} 字）</div>`;
-    } else if (data.meta.ai_requested && data.meta.ai_warning) {
-      html += `<div style="margin-top:8px;color:#aa4400;font-size:13px">AI：${escapeHtml(data.meta.ai_warning)}</div>`;
-    }
-  }
-  html += `</div>`;
-
-  if (data.scan_issues && data.scan_issues.length) {
-    html += '<div class="warn-box"><strong>無法掃描的 URL / 檔案</strong><ul>';
-    for (const issue of data.scan_issues) {
-      html += `<li><code>${escapeHtml(issue.path)}</code> — ${escapeHtml(issue.reason)}</li>`;
-    }
-    html += '</ul></div>';
-  }
-
-  if (s.by_file && s.by_file.length) {
-    html += '<h3 class="section-title">依頁面 / 檔案摘要</h3><table><thead><tr>'
-         + '<th>類型</th><th>頁面 / 檔案</th><th>命中數</th><th>位置明細</th></tr></thead><tbody>';
-    for (const row of s.by_file) {
-      const display = row.display || fileDisplayName(row.file);
-      const kind = row.kind_label || '—';
-      const locs = (row.locations || [])
-        .map(loc => `${escapeHtml(loc.label || locationLabel(loc.location))} (${loc.count})`)
-        .join('、');
-      html += `<tr>
-        <td>${escapeHtml(kind)}</td>
-        <td><strong>${escapeHtml(display)}</strong>
-            <div class="sub-src">${escapeHtml(row.file)}</div></td>
-        <td>${row.total}</td>
-        <td>${locs || '—'}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
-  }
-
-  if (!data.findings || !data.findings.length) {
-    html += '<div class="empty">沒有偵測到個資。</div>';
-  } else {
-    html += '<h3 class="section-title">命中明細</h3><table><thead><tr>'
-         + '<th>嚴重度</th><th>偵測器</th><th>類別</th><th>命中 (遮罩)</th>'
-         + '<th>檔案 / 頁面 / 位置</th><th>上下文</th></tr></thead><tbody>';
-    for (const f of data.findings) {
-      const parts = splitSource(f.source);
-      const display = fileDisplayName(parts.file);
-      const loc = parts.location ? locationLabel(parts.location) : '—';
-      html += `<tr>
-        <td><span class="pill ${f.severity}">${f.severity}</span></td>
-        <td>${escapeHtml(f.detector)}<div style="color:#555;font-size:12px">${escapeHtml(f.notes||'')}</div></td>
-        <td>${escapeHtml(f.category)}</td>
-        <td class="value">${escapeHtml(f.masked)}</td>
-        <td><strong>${escapeHtml(display)}</strong>
-            <div class="sub-src">${escapeHtml(parts.file || '')}</div>
-            <div class="sub-src">${escapeHtml(loc)} · ${f.start}-${f.end}</div></td>
-        <td class="context">${escapeHtml(f.context||'')}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
-  }
-  resEl.innerHTML = html;
-}
-
 function escapeHtml(s) {
   return (s || '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;')
     .replaceAll('>','&gt;').replaceAll('"','&quot;');
 }
 
+function statsCard(label, value, cls) {
+  return `<div class="stat ${cls||''}"><div class="label">${escapeHtml(label)}</div><div class="value">${value}</div></div>`;
+}
+
+function renderResults(data) {
+  clearError();
+  const s = data.summary || { total: 0, by_severity: {}, by_category: {} };
+  const sev = s.by_severity || {};
+
+  let html = '';
+
+  /* Stats */
+  html += `<div class="stats">
+    ${statsCard('總命中', s.total ?? 0, 'total')}
+    ${statsCard('Critical', sev.critical || 0, 'critical')}
+    ${statsCard('High',     sev.high || 0, 'high')}
+    ${statsCard('Medium',   sev.medium || 0, 'medium')}
+    ${statsCard('Low',      sev.low || 0, 'low')}
+  </div>`;
+
+  /* Meta */
+  if (data.meta) {
+    let metaItems = '';
+    if (data.meta.scanned_file) metaItems += `<span class="item">📄 掃描檔案：<strong>${escapeHtml(data.meta.scanned_file)}</strong></span>`;
+    if (data.meta.scanned_url)  {
+      let pages = data.meta.pages_scanned != null ? ` · 已掃描 ${data.meta.pages_scanned} 個 URL` : '';
+      metaItems += `<span class="item">🔗 掃描網址：<strong>${escapeHtml(data.meta.scanned_url)}</strong>${pages}</span>`;
+    }
+    if (data.meta.ai_used) metaItems += `<span class="ai-tag">🤖 Azure AI 已啟用 · 分析 ${data.meta.ai_chars_analyzed} 字</span>`;
+    else if (data.meta.ai_requested && data.meta.ai_warning) metaItems += `<span class="item" style="color:var(--warn)">⚠ AI：${escapeHtml(data.meta.ai_warning)}</span>`;
+    const cats = Object.entries(s.by_category || {}).map(([k,v]) => `${k} (${v})`).join('、') || '無';
+    metaItems += `<span class="item">類別：<strong>${escapeHtml(cats)}</strong></span>`;
+    html += `<div class="card card-pad"><div class="meta-row">${metaItems}</div></div>`;
+  }
+
+  /* Scan issues */
+  if (data.scan_issues && data.scan_issues.length) {
+    let items = '';
+    for (const issue of data.scan_issues) {
+      items += `<li><code>${escapeHtml(issue.path)}</code> — ${escapeHtml(issue.reason)}</li>`;
+    }
+    html += `<div class="warn-box">
+      <div class="title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        無法掃描的 URL / 檔案（${data.scan_issues.length}）
+      </div>
+      <ul>${items}</ul>
+    </div>`;
+  }
+
+  /* by_file summary */
+  if (s.by_file && s.by_file.length) {
+    let rows = '';
+    for (const row of s.by_file) {
+      const display = row.display || fileDisplayName(row.file);
+      const kind = row.kind_label || '—';
+      const locs = (row.locations || [])
+        .map(loc => `<span class="badge">${escapeHtml(loc.label || locationLabel(loc.location))} · ${loc.count}</span>`)
+        .join(' ');
+      rows += `<tr>
+        <td><span class="badge">${escapeHtml(kind)}</span></td>
+        <td>
+          <div class="name">${escapeHtml(display)}</div>
+          <div class="src">${escapeHtml(row.file)}</div>
+        </td>
+        <td><strong>${row.total}</strong></td>
+        <td>${locs || '—'}</td>
+      </tr>`;
+    }
+    html += `<div class="section">
+      <div class="section-head">
+        <h3>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+          依頁面 / 檔案摘要
+        </h3>
+        <span class="right">${s.by_file.length} 個來源</span>
+      </div>
+      <div class="table-wrap"><table class="modern">
+        <thead><tr><th>類型</th><th>頁面 / 檔案</th><th>命中數</th><th>位置明細</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  /* Findings detail */
+  if (!data.findings || !data.findings.length) {
+    html += `<div class="empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <div class="big">未偵測到個資</div>
+      <div class="sub">仍建議由經辦人員人工複核後再進行公開。</div>
+    </div>`;
+  } else {
+    let rows = '';
+    for (const f of data.findings) {
+      const parts = splitSource(f.source);
+      const display = fileDisplayName(parts.file);
+      const loc = parts.location ? locationLabel(parts.location) : '—';
+      rows += `<tr>
+        <td><span class="pill ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span></td>
+        <td>
+          <strong>${escapeHtml(f.detector)}</strong>
+          ${f.notes ? `<div class="src">${escapeHtml(f.notes)}</div>` : ''}
+        </td>
+        <td><span class="badge">${escapeHtml(f.category)}</span></td>
+        <td class="mono">${escapeHtml(f.masked)}</td>
+        <td>
+          <div class="name">${escapeHtml(display)}</div>
+          <div class="src">${escapeHtml(parts.file || '')}</div>
+          <div class="src">${escapeHtml(loc)} · ${f.start}-${f.end}</div>
+        </td>
+        <td class="context">${escapeHtml(f.context||'')}</td>
+      </tr>`;
+    }
+    html += `<div class="section">
+      <div class="section-head">
+        <h3>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          命中明細
+        </h3>
+        <span class="right">${data.findings.length} 筆</span>
+      </div>
+      <div class="table-wrap"><table class="modern">
+        <thead><tr>
+          <th>嚴重度</th><th>偵測器</th><th>類別</th>
+          <th>命中（遮罩）</th><th>檔案 / 頁面 / 位置</th><th>上下文</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  resEl.innerHTML = html;
+  resEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setLoading(btn, on) {
+  if (!btn._origHtml) btn._origHtml = btn.innerHTML;
+  if (on) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span><span>掃描中…</span>';
+    resEl.innerHTML = `<div class="skeleton">
+      <div class="line" style="width:30%"></div>
+      <div class="line" style="width:80%"></div>
+      <div class="line" style="width:60%"></div>
+      <div class="line" style="width:90%"></div>
+    </div>`;
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = btn._origHtml;
+  }
+}
+
 async function postForm(path, formData, btn) {
-  btn.disabled = true;
-  const orig = btn.textContent;
-  btn.textContent = '掃描中…';
+  clearError();
+  setLoading(btn, true);
   try {
     const resp = await fetch(path, { method: 'POST', body: formData });
     const data = await resp.json();
     if (!resp.ok) {
+      resEl.innerHTML = '';
       showError(data.detail || '掃描失敗');
       return;
     }
     renderResults(data);
   } catch (e) {
+    resEl.innerHTML = '';
     showError(e.message || String(e));
   } finally {
-    btn.disabled = false;
-    btn.textContent = orig;
+    setLoading(btn, false);
   }
 }
 
@@ -349,7 +914,7 @@ document.getElementById('btn-text').addEventListener('click', e => {
   const fd = new FormData();
   fd.append('text', document.getElementById('text').value);
   appendAi(fd);
-  postForm('/api/scan/text', fd, e.target);
+  postForm('/api/scan/text', fd, e.currentTarget);
 });
 
 document.getElementById('btn-file').addEventListener('click', e => {
@@ -358,14 +923,14 @@ document.getElementById('btn-file').addEventListener('click', e => {
   const fd = new FormData();
   fd.append('file', f);
   appendAi(fd);
-  postForm('/api/scan/file', fd, e.target);
+  postForm('/api/scan/file', fd, e.currentTarget);
 });
 
 document.getElementById('btn-url').addEventListener('click', e => {
   const fd = new FormData();
   fd.append('url', document.getElementById('url').value);
   appendAi(fd);
-  postForm('/api/scan/url', fd, e.target);
+  postForm('/api/scan/url', fd, e.currentTarget);
 });
 
 document.getElementById('btn-site').addEventListener('click', e => {
@@ -374,7 +939,7 @@ document.getElementById('btn-site').addEventListener('click', e => {
   fd.append('max_pages', document.getElementById('max-pages').value);
   fd.append('max_depth', document.getElementById('max-depth').value);
   appendAi(fd);
-  postForm('/api/scan/site', fd, e.target);
+  postForm('/api/scan/site', fd, e.currentTarget);
 });
 </script>
 </body></html>
