@@ -47,3 +47,17 @@ def test_ignore_word():
     findings = [_finding("email", "president@mail.tku.edu.tw")]
     out = apply_whitelist(findings, config=cfg)
     assert len(out) == 0
+
+
+def test_load_whitelist_no_deadlock_on_missing_file(tmp_path):
+    """首次載入不存在檔案時不可死鎖（回歸測試）。"""
+    import pii_scanner.whitelist.store as store
+
+    p = tmp_path / "wl.json"
+    store._cache_config = None
+    store._cache_mtime = -2.0
+    cfg = store.load_whitelist(path=p, force_reload=True)
+    assert "surname_name" in cfg.global_disabled_detectors
+    cfg2 = store.load_whitelist(path=p, force_reload=True)
+    assert cfg2.version == cfg.version
+

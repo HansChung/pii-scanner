@@ -71,32 +71,46 @@ class WhitelistConfig:
         )
 
 
-_lock = threading.Lock()
+_lock = threading.RLock()
+_cache_mtime: float = -2.0
+_cache_config: Optional[WhitelistConfig] = None
+
+
+def _file_mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime if p.exists() else -1.0
+    except OSError:
+        return -1.0
 
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def load_whitelist(path: Optional[Path] = None) -> WhitelistConfig:
+def load_whitelist(path: Optional[Path] = None, *, force_reload: bool = False) -> WhitelistConfig:
+    global _cache_mtime, _cache_config
     p = path or WHITELIST_PATH
     with _lock:
+        mtime = _file_mtime(p)
+        if not force_reload and _cache_config is not None and mtime == _cache_mtime:
+            return _cache_config
+
         if not p.exists():
             cfg = WhitelistConfig.from_dict(DEFAULT_CONFIG)
+        else:
             try:
-                save_whitelist(cfg, path=p)
-            except OSError:
-                # Azure 路徑尚未就緒時仍回傳預設值，避免 API 502
-                pass
-            return cfg
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return WhitelistConfig.from_dict(DEFAULT_CONFIG)
-        return WhitelistConfig.from_dict(data)
+                data = json.loads(p.read_text(encoding="utf-8"))
+                cfg = WhitelistConfig.from_dict(data)
+            except (json.JSONDecodeError, OSError):
+                cfg = WhitelistConfig.from_dict(DEFAULT_CONFIG)
+
+        _cache_mtime = mtime
+        _cache_config = cfg
+        return cfg
 
 
 def save_whitelist(config: WhitelistConfig, path: Optional[Path] = None) -> None:
+    global _cache_mtime, _cache_config
     p = path or WHITELIST_PATH
     with _lock:
         try:
@@ -104,6 +118,8 @@ def save_whitelist(config: WhitelistConfig, path: Optional[Path] = None) -> None
             tmp = p.with_suffix(".tmp")
             tmp.write_text(json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(p)
+            _cache_mtime = _file_mtime(p)
+            _cache_config = config
         except OSError as exc:
             raise OSError(f"無法寫入白名單 ({p})：{exc}") from exc
 

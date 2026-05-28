@@ -169,10 +169,25 @@ function collectConfig() {
   };
 }
 
+async function fetchJson(url, options = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...options, signal: ctrl.signal, credentials: 'same-origin' });
+    return resp;
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('請求逾時（15秒）。若正在整站掃描，請等待掃描完成後再試。');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function loadConfig() {
   showMsg('載入中…', true);
   try {
-    const resp = await fetch('/admin/api/config', { credentials: 'same-origin' });
+    const resp = await fetchJson('/admin/api/config');
     if (!resp.ok) {
       let detail = '';
       try { detail = (await resp.json()).detail || ''; } catch (_) {}
@@ -203,9 +218,8 @@ async function saveConfig() {
   showMsg('儲存中…', true);
   try {
     const body = collectConfig();
-    const resp = await fetch('/admin/api/config', {
+    const resp = await fetchJson('/admin/api/config', {
       method: 'PUT',
-      credentials: 'same-origin',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });

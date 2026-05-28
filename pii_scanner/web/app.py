@@ -1,17 +1,7 @@
-"""FastAPI Web UI：提供文字 / URL / 上傳檔案掃描的網頁介面與 REST API。
-
-啟動方式::
-
-    uvicorn pii_scanner.web.app:app --reload --host 0.0.0.0 --port 8000
-
-Azure App Service (B1)::
-
-    bash startup.sh
-
-管理介面：設定環境變數 ``PII_ADMIN_PASSWORD`` 後開啟 ``/admin``。
-"""
+"""FastAPI Web UI：提供文字 / URL / 上傳檔案掃描的網頁介面與 REST API。"""
 from __future__ import annotations
 
+import asyncio
 import secrets
 from pathlib import Path
 from typing import List, Optional
@@ -28,7 +18,7 @@ from ..scanners.web_scanner import scan_site, scan_url
 from ..settings import ADMIN_PASSWORD, HTTP_TIMEOUT, MAX_SITE_DEPTH, MAX_SITE_PAGES, MAX_UPLOAD_BYTES
 from ..whitelist import WhitelistConfig, apply_whitelist, list_known_detectors, load_whitelist, save_whitelist
 
-app = FastAPI(title="PII Scanner", version="0.2.0", description="自動個資掃描 API")
+app = FastAPI(title="PII Scanner", version="0.2.1", description="自動個資掃描 API")
 security = HTTPBasic(auto_error=False)
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -66,7 +56,9 @@ def index() -> HTMLResponse:
 
 @app.post("/api/scan/text")
 async def api_scan_text(text: str = Form(...)) -> JSONResponse:
-    findings = scan_text(text, source="api:text", detectors=get_active_detectors())
+    findings = await asyncio.to_thread(
+        scan_text, text, source="api:text", detectors=get_active_detectors()
+    )
     return _respond(findings)
 
 
@@ -85,14 +77,20 @@ async def api_scan_file(file: UploadFile = File(...)) -> JSONResponse:
             continue
     if text is None:
         raise HTTPException(status_code=415, detail="無法解碼此檔案 (疑似二進位)")
-    findings = detect_in_text(text, source=file.filename or "upload", detectors=get_active_detectors())
+
+    def _run() -> List[Finding]:
+        return detect_in_text(text, source=file.filename or "upload", detectors=get_active_detectors())
+
+    findings = await asyncio.to_thread(_run)
     return _respond(findings)
 
 
 @app.post("/api/scan/url")
 async def api_scan_url(url: str = Form(...)) -> JSONResponse:
     try:
-        findings = scan_url(url, timeout=HTTP_TIMEOUT, detectors=get_active_detectors())
+        findings = await asyncio.to_thread(
+            scan_url, url, timeout=HTTP_TIMEOUT, detectors=get_active_detectors()
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"抓取 URL 失敗：{exc}")
     return _respond(findings)
@@ -107,7 +105,8 @@ async def api_scan_site(
     pages = min(max(1, max_pages), MAX_SITE_PAGES)
     depth = min(max(0, max_depth), MAX_SITE_DEPTH)
     try:
-        findings = scan_site(
+        findings = await asyncio.to_thread(
+            scan_site,
             url,
             max_pages=pages,
             max_depth=depth,
@@ -121,7 +120,9 @@ async def api_scan_site(
 
 @app.post("/api/scan/text/html", response_class=HTMLResponse)
 async def api_scan_text_html(text: str = Form(...)) -> HTMLResponse:
-    findings = scan_text(text, source="api:text", detectors=get_active_detectors())
+    findings = await asyncio.to_thread(
+        scan_text, text, source="api:text", detectors=get_active_detectors()
+    )
     return HTMLResponse(render_html(_finalize(findings)))
 
 
@@ -131,10 +132,13 @@ def admin_page(_: str = Depends(_require_admin)) -> HTMLResponse:
 
 
 @app.get("/admin/api/config")
-def admin_get_config(_: str = Depends(_require_admin)) -> JSONResponse:
-    try:
+async def admin_get_config(_: str = Depends(_require_admin)) -> JSONResponse:
+    def _load() -> dict:
         cfg = load_whitelist()
-        return JSONResponse({"config": cfg.to_dict(), "detectors": list_known_detectors()})
+        return {"config": cfg.to_dict(), "detectors": list_known_detectors()}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_load))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"讀取白名單失敗：{exc}")
 
@@ -145,14 +149,17 @@ async def admin_put_config(
     payload: dict = Body(...),
     _: str = Depends(_require_admin),
 ) -> JSONResponse:
-    try:
+    def _save() -> dict:
         cfg = WhitelistConfig.from_dict(payload)
         save_whitelist(cfg)
+        return {"ok": True, "config": cfg.to_dict()}
+
+    try:
+        return JSONResponse(await asyncio.to_thread(_save))
     except OSError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     except (TypeError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=f"格式錯誤：{exc}")
-    return JSONResponse({"ok": True, "config": cfg.to_dict()})
 
 
 @app.get("/healthz", response_class=PlainTextResponse)
