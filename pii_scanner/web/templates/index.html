@@ -77,6 +77,7 @@
   .notice-box p { margin: 0; font-size: 14px; line-height: 1.65; }
   .notice-box ul { margin: 8px 0 0; padding-left: 1.2em; font-size: 14px; line-height: 1.65; }
   .notice-box li { margin: 4px 0; }
+  .file-hint { font-size: 13px; color: #5b607a; margin: 4px 0 10px; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -110,7 +111,8 @@
   </section>
 
   <section class="panel hidden" data-panel="file">
-    <label for="file">選擇檔案（文字 .txt .csv；Excel .xlsx；PDF .pdf；開放格式 .ods .odt；Word .docx）</label>
+    <label for="file">選擇檔案</label>
+    <p class="file-hint">支援格式：<strong>文字檔</strong>（.txt .csv .json .html .log .md .xml 等）、<strong>Excel</strong>（.xlsx .xlsm，逐工作表掃描）、<strong>PDF</strong>（.pdf，逐頁掃描）、<strong>開放文件</strong>（.ods .odt）、<strong>Word</strong>（.docx）。掃描影像 PDF（無文字層）目前不支援。</p>
     <input type="file" id="file" accept=".txt,.csv,.tsv,.json,.jsonl,.xml,.html,.htm,.md,.log,.xlsx,.xlsm,.pdf,.ods,.odt,.docx">
     <button class="primary" id="btn-file">上傳並掃描</button>
   </section>
