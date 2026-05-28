@@ -16,7 +16,9 @@ from typing import Callable, Iterable, List, Optional
 from ..settings import MAX_DOCUMENT_ROWS, MAX_DOCUMENT_SHEETS
 
 # 二進位文件副檔名 → 擷取函式
-EXCEL_SUFFIXES = {".xlsx", ".xlsm"}
+XLSX_SUFFIXES = {".xlsx", ".xlsm"}
+XLS_SUFFIXES = {".xls"}
+EXCEL_SUFFIXES = XLSX_SUFFIXES | XLS_SUFFIXES
 ODS_SUFFIXES = {".ods"}
 ODT_SUFFIXES = {".odt"}
 DOCX_SUFFIXES = {".docx"}
@@ -42,8 +44,12 @@ def is_document_file(path: str | Path) -> bool:
 
 
 def _cell_str(value: object) -> str:
-    if value is None:
+    if value is None or value == "":
         return ""
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return str(value).strip()
     return str(value).strip()
 
 
@@ -84,6 +90,37 @@ def _extract_xlsx(data: bytes, filename: str) -> List[DocumentSegment]:
                 segments.append(DocumentSegment(source=f"{filename}#{sheet}", text=text))
     finally:
         wb.close()
+    return segments
+
+
+def _extract_xls(data: bytes, filename: str) -> List[DocumentSegment]:
+    try:
+        import xlrd
+    except ImportError as exc:
+        raise DocumentReadError("缺少 xlrd，無法讀取舊版 Excel (.xls)") from exc
+
+    try:
+        book = xlrd.open_workbook(file_contents=data)
+    except Exception as exc:
+        raise DocumentReadError(f"無法解析 Excel (.xls)：{exc}") from exc
+
+    segments: List[DocumentSegment] = []
+    for idx in range(book.nsheets):
+        if idx >= MAX_DOCUMENT_SHEETS:
+            break
+        sheet = book.sheet_by_index(idx)
+        name = sheet.name or f"Sheet{idx + 1}"
+
+        def _rows():
+            for row_idx in range(sheet.nrows):
+                if row_idx >= MAX_DOCUMENT_ROWS:
+                    yield ["…(已達列數上限)"]
+                    return
+                yield sheet.row_values(row_idx)
+
+        text = _rows_to_text(_rows())
+        if text.strip():
+            segments.append(DocumentSegment(source=f"{filename}#{name}", text=text))
     return segments
 
 
@@ -227,8 +264,10 @@ def _extract_pdf(data: bytes, filename: str) -> List[DocumentSegment]:
 
 
 _EXTRACTORS: dict[str, Callable[[bytes, str], List[DocumentSegment]]] = {}
-for suf in EXCEL_SUFFIXES:
+for suf in XLSX_SUFFIXES:
     _EXTRACTORS[suf] = _extract_xlsx
+for suf in XLS_SUFFIXES:
+    _EXTRACTORS[suf] = _extract_xls
 for suf in ODS_SUFFIXES:
     _EXTRACTORS[suf] = _extract_ods
 for suf in ODT_SUFFIXES:
@@ -243,14 +282,27 @@ def supported_document_formats() -> List[str]:
     return sorted(DOCUMENT_SUFFIXES)
 
 
-def extract_document_segments(data: bytes, filename: str) -> List[DocumentSegment]:
-    """依副檔名擷取文件各分頁/段落文字。"""
-    ext = Path(filename).suffix.lower()
-    fn = _EXTRACTORS.get(ext)
-    if fn is None:
+def extract_document_segments(
+    data: bytes,
+    filename: str,
+    *,
+    ext: str | None = None,
+) -> List[DocumentSegment]:
+    """依副檔名（或指定 ext）擷取文件各分頁/段落文字。"""
+    from .format_sniff import sniff_document_suffix
+
+    chosen = (ext or Path(filename).suffix or "").lower()
+    sniffed = sniff_document_suffix(data)
+    if sniffed:
+        chosen = sniffed
+    elif chosen not in DOCUMENT_SUFFIXES:
+        chosen = ""
         raise DocumentReadError(
-            f"不支援的文件格式 {ext}；支援：{', '.join(supported_document_formats())}"
+            f"不支援的文件格式 {chosen or '(未知)'}；支援：{', '.join(supported_document_formats())}"
         )
+    fn = _EXTRACTORS.get(chosen)
+    if fn is None:
+        raise DocumentReadError(f"不支援的文件格式 {chosen}")
     segments = fn(data, filename)
     if not segments:
         raise DocumentReadError("文件內容為空或無可讀文字")

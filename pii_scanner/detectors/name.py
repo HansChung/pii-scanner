@@ -14,6 +14,11 @@ KEYWORDS = (
     r"Name|Full\s*Name|Contact(?:\s*Person)?)"
 )
 
+# 試算表標題列常見欄位名，避免「姓名\t出生日期」誤判為姓名
+_HEADER_LIKE = re.compile(
+    r"日期|地址|電話|郵箱|信箱|卡號|帳號|備註|收入|性別|血型|編號|單位|科系|名稱|英文"
+)
+
 
 class ChineseNameDetector(BaseDetector):
     name = "chinese_name"
@@ -27,6 +32,8 @@ class ChineseNameDetector(BaseDetector):
     def detect(self, text: str) -> Iterable[Finding]:
         for m in self.pattern.finditer(text):
             value = m.group(1)
+            if _HEADER_LIKE.search(value) or value in {"同戶籍", "同戶籍地址"}:
+                continue
             yield self.make_finding(
                 text,
                 value=value,

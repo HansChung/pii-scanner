@@ -20,6 +20,7 @@ from .document_reader import (
     extract_document_segments,
     is_document_file,
 )
+from .format_sniff import is_likely_binary, sniff_document_suffix
 
 DEFAULT_TEXT_SUFFIXES = {
     ".txt", ".md", ".rst", ".csv", ".tsv", ".log", ".json", ".jsonl",
@@ -64,13 +65,27 @@ def scan_bytes(
     """掃描記憶體中的檔案內容（文字檔或 Office/開放文件）。"""
     name = filename or "upload"
     ext = Path(name).suffix.lower()
+    sniffed = sniff_document_suffix(data)
+    # 內容優先：避免 .xls 副檔名但實際為 .xlsx 等誤判
+    doc_ext = sniffed if sniffed else (ext if ext in DOCUMENT_SUFFIXES else None)
 
-    if ext in DOCUMENT_SUFFIXES:
-        segments = extract_document_segments(data, name)
+    if doc_ext and doc_ext in DOCUMENT_SUFFIXES:
+        segments = extract_document_segments(data, name, ext=doc_ext)
         findings: List[Finding] = []
         for seg in segments:
             findings.extend(detect_in_text(seg.text, detectors=detectors, source=seg.source))
         return findings
+
+    if is_likely_binary(data):
+        hint = ""
+        if sniffed == ".xls":
+            hint = " 偵測到舊版 Excel (.xls)，請確認已部署最新版本。"
+        elif sniffed:
+            hint = f" 偵測到格式 {sniffed}，請確認副檔名正確。"
+        raise DocumentReadError(
+            "無法解析此二進位文件；"
+            + (hint or " 若為 Excel 請使用 .xlsx 或 .xls，並確認非密碼保護。")
+        )
 
     text = _read_text_bytes(data)
     if text is None:

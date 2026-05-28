@@ -122,6 +122,7 @@ uvicorn pii_scanner.web.app:app --host 0.0.0.0 --port 8000
 | PDF | `.pdf` | **逐頁**擷取文字；結果 `source` 顯示 `檔名#page=1` |
 
 Excel / ODS 若有多個分頁，每一頁各自擷取儲存格文字並掃描，命中結果會標示來源工作表。  
+上傳 Excel 時即使副檔名錯誤（如 `.xls` 或無副檔名），系統會依檔案內容自動辨識格式。
 PDF 逐頁掃描；若 PDF 為掃描影像（無文字層），目前無法分析，需 OCR 後再上傳文字檔。  
 環境變數 `PII_MAX_DOCUMENT_SHEETS`（預設 30，亦適用 PDF 頁數）、`PII_MAX_DOCUMENT_ROWS`（預設 5000）可限制單檔規模。
 
