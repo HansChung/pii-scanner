@@ -678,7 +678,11 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           整個網站爬取
         </h2>
-        <p class="desc">爬取 HTML 頁面時會跟進 <strong>PDF / Word / Excel</strong> 下載連結；無法抓取或解析的連結會單獨列出。</p>
+        <p class="desc">
+          自動跟進 HTML 頁面上的 <strong>PDF / Word / Excel / ZIP 壓縮包 / CSV / JSON</strong> 下載連結；
+          <strong>iframe</strong>、<strong>embed</strong>、<strong>object</strong> 等也視為下游連結。
+          下載 ZIP 會解開後逐檔分析。
+        </p>
         <label class="field-label" for="site-url">起始 URL</label>
         <input type="url" id="site-url" placeholder="https://example.com">
         <div class="row" style="margin-top:12px">
@@ -690,6 +694,13 @@
             <label class="field-label" for="max-depth">最大深度</label>
             <input type="number" id="max-depth" value="1" min="0" max="5">
           </div>
+        </div>
+        <div class="ai-option" style="margin-top:14px">
+          <label class="label-row" for="use-sitemap">
+            <input type="checkbox" id="use-sitemap">
+            <span><strong>從 sitemap.xml 自動探索 URL</strong>（推薦）</span>
+          </label>
+          <p class="hint">啟用後會先嘗試 <code>/sitemap.xml</code> 與 <code>/sitemap_index.xml</code>，把列出的所有 URL 加入掃描佇列，比深度爬取覆蓋率更高。仍受「最多頁數」限制。</p>
         </div>
         <div class="actions">
           <button class="primary" id="btn-site">
@@ -929,6 +940,23 @@ function renderResults(data) {
     if (data.meta.scanned_url)  {
       let pages = data.meta.pages_scanned != null ? ` · 已掃描 ${data.meta.pages_scanned} 個 URL` : '';
       metaItems += `<span class="item">🔗 掃描網址：<strong>${escapeHtml(data.meta.scanned_url)}</strong>${pages}</span>`;
+      const breakdownParts = [];
+      if (data.meta.html_scanned)      breakdownParts.push(`網頁 ${data.meta.html_scanned}`);
+      if (data.meta.documents_scanned) breakdownParts.push(`文件 ${data.meta.documents_scanned}`);
+      if (data.meta.archives_scanned)  breakdownParts.push(`壓縮包 ${data.meta.archives_scanned}`);
+      if (data.meta.text_scanned)      breakdownParts.push(`純文字 ${data.meta.text_scanned}`);
+      if (breakdownParts.length) {
+        metaItems += `<span class="item">類型分布：<strong>${breakdownParts.join(' · ')}</strong></span>`;
+      }
+      if (data.meta.sitemap_seeded)    metaItems += `<span class="item">🗺 sitemap：${data.meta.sitemap_seeded} URL</span>`;
+      if (data.meta.archive_total) {
+        const m = data.meta.archive_scanned_members ?? data.meta.archive_total;
+        metaItems += `<span class="item">📦 壓縮包成員：${m} / ${data.meta.archive_total}</span>`;
+      }
+      if (data.meta.bytes_total) {
+        const mb = (data.meta.bytes_total / 1024 / 1024).toFixed(2);
+        metaItems += `<span class="item">下載量：<strong>${mb} MB</strong></span>`;
+      }
     }
     if (data.meta.ai_used) metaItems += `<span class="ai-tag">🤖 Azure AI 已啟用 · 分析 ${data.meta.ai_chars_analyzed} 字</span>`;
     else if (data.meta.ai_requested && data.meta.ai_warning) metaItems += `<span class="item" style="color:var(--warn)">⚠ AI：${escapeHtml(data.meta.ai_warning)}</span>`;
@@ -1130,6 +1158,8 @@ document.getElementById('btn-site').addEventListener('click', e => {
   fd.append('url', document.getElementById('site-url').value);
   fd.append('max_pages', document.getElementById('max-pages').value);
   fd.append('max_depth', document.getElementById('max-depth').value);
+  const sm = document.getElementById('use-sitemap');
+  fd.append('use_sitemap', sm && sm.checked ? 'true' : 'false');
   appendAi(fd);
   postForm('/api/scan/site', fd, e.currentTarget);
 });

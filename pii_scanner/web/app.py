@@ -147,6 +147,9 @@ async def api_scan_file(
             meta.ocr_provider = stats.get("ocr_provider")
         if stats.get("ocr_warning"):
             meta.ocr_warning = stats["ocr_warning"]
+        if stats.get("archive_total"):
+            meta.archive_total = stats["archive_total"]
+            meta.archive_scanned_members = stats.get("archive_scanned")
         return findings, meta, preview
 
     try:
@@ -189,6 +192,9 @@ async def api_scan_url(
             meta.ocr_provider = stats.get("ocr_provider")
         if stats.get("ocr_warning"):
             meta.ocr_warning = stats["ocr_warning"]
+        if stats.get("archive_total"):
+            meta.archive_total = stats["archive_total"]
+            meta.archive_scanned_members = stats.get("archive_scanned")
         return findings, meta, url_issues, preview
 
     try:
@@ -208,8 +214,10 @@ async def api_scan_site(
     max_pages: int = Form(10),
     max_depth: int = Form(1),
     use_ai: str = Form("false"),
+    use_sitemap: str = Form("false"),
 ) -> JSONResponse:
     ai = _parse_use_ai(use_ai)
+    sitemap = _parse_use_ai(use_sitemap)
     pages = min(max(1, max_pages), MAX_SITE_PAGES)
     depth = min(max(0, max_depth), MAX_SITE_DEPTH)
 
@@ -226,11 +234,19 @@ async def api_scan_site(
             issues=site_issues,
             stats=stats,
             preview=preview,
+            use_sitemap=sitemap,
         )
         meta = ScanMeta(ai_requested=ai)
         meta.scanned_url = stats.get("start_url", url)
         if stats.get("pages_scanned") is not None:
             meta.pages_scanned = stats["pages_scanned"]
+        for key in ("html_scanned", "documents_scanned", "archives_scanned",
+                    "text_scanned", "sitemap_seeded", "bytes_total"):
+            if stats.get(key) is not None:
+                setattr(meta, key, stats[key])
+        if stats.get("archive_total"):
+            meta.archive_total = stats["archive_total"]
+            meta.archive_scanned_members = stats.get("archive_scanned")
         if stats.get("ocr_used"):
             meta.ocr_used = True
             meta.ocr_pages = stats.get("ocr_pages")
