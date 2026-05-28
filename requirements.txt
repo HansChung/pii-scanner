@@ -1,5 +1,6 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
+gunicorn>=21.2
 python-multipart>=0.0.9
 requests>=2.31
 beautifulsoup4>=4.12

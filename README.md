@@ -120,7 +120,94 @@ REST API 端點：
 | `POST` | `/api/scan/site` | `url`, `max_pages`, `max_depth` |
 | `GET`  | `/healthz` | — |
 
-回應格式範例：
+## 部署至 Azure App Service (B1)
+
+本專案已針對 **B1 Linux（1 vCPU / 1.75GB RAM）** 優化，無需 Presidio。
+
+### 1. 建立 App Service（Azure CLI 範例）
+
+```bash
+RESOURCE_GROUP="rg-pii-scanner"
+LOCATION="eastasia"
+APP_PLAN="plan-pii-b1"
+WEBAPP="pii-scanner-yourname"   # 全小寫、全域唯一
+
+az group create -n $RESOURCE_GROUP -l $LOCATION
+az appservice plan create -g $RESOURCE_GROUP -n $APP_PLAN --sku B1 --is-linux
+az webapp create -g $RESOURCE_GROUP -p $APP_PLAN -n $WEBAPP \
+  --runtime "PYTHON:3.12"
+```
+
+### 2. 設定啟動命令與建議選項
+
+在 Azure Portal → **設定 → 一般設定**，或 CLI：
+
+```bash
+az webapp config set -g $RESOURCE_GROUP -n $WEBAPP \
+  --startup-file "bash startup.sh"
+
+# 建議：Always On（B1 支援，避免冷啟動）
+az webapp config set -g $RESOURCE_GROUP -n $WEBAPP --always-on true
+
+# 健康檢查（Portal → 健康檢查 → 路徑 /healthz）
+```
+
+**應用程式設定（Application settings）— B1 建議值：**
+
+| 名稱 | 值 | 說明 |
+| --- | --- | --- |
+| `SCM_DO_BUILD_DURING_DEPLOYMENT` | `true` | 部署時 pip install |
+| `WEB_CONCURRENCY` | `1` | B1 固定 1 worker（預設） |
+| `PII_MAX_UPLOAD_MB` | `5` | 上傳上限（預設 5MB） |
+| `PII_MAX_SITE_PAGES` | `10` | 整站爬蟲最多頁數 |
+| `PII_HTTP_TIMEOUT` | `15` | 單次 HTTP 逾時（秒） |
+
+升級至 S1 後可將 `WEB_CONCURRENCY` 改為 `2`、`PII_MAX_SITE_PAGES` 改為 `20`。
+
+### 3. 部署方式
+
+**方式 A — GitHub Actions（推薦）**
+
+1. Azure Portal → Web App → **部署中心** → 下載 **Publish Profile**
+2. GitHub Repo → Settings → Secrets：
+   - `AZURE_WEBAPP_NAME` = 你的 Web App 名稱
+   - `AZURE_WEBAPP_PUBLISH_PROFILE` = Publish Profile 全文
+3. push 到 `main` 即自動部署（`.github/workflows/azure-webapp.yml`）
+
+**方式 B — 本機 zip 部署**
+
+```bash
+az webapp deploy -g $RESOURCE_GROUP -n $WEBAPP \
+  --src-path . --type zip
+```
+
+### 4. 驗證
+
+```bash
+curl https://$WEBAPP.azurewebsites.net/healthz
+# 預期回應: ok
+```
+
+開啟 `https://<你的-webapp>.azurewebsites.net/` 即可使用 Web UI。
+
+### B1 限制提醒
+
+| 項目 | B1 限制 | 本專案因應 |
+| --- | --- | --- |
+| RAM 1.75GB | 不宜多 worker | `startup.sh` 預設 1 worker |
+| 請求逾時 ~230s | 整站爬蟲不宜過久 | 預設最多 10 頁 |
+| 上傳大小 | Platform 上限 ~30MB | API 預設限 5MB |
+| 冷啟動 | 閒置後首次較慢 | 建議開 Always On |
+
+### 5. 安全建議（正式環境）
+
+- 啟用 **Authentication**（Microsoft Entra ID），避免公開掃描介面
+- 敏感設定放 **Key Vault** 參考，不要 commit `.env`
+- 只掃描有授權的網站；整站爬蟲預設遵守 `robots.txt`
+
+---
+
+### API 回應格式範例
 
 ```json
 {
