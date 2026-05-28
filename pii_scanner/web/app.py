@@ -10,9 +10,11 @@ from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFil
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from ..detectors import detect_in_text, get_active_detectors
+from ..detectors import get_active_detectors
 from ..detectors.base import Finding
 from ..report import findings_to_dict, render_html
+from ..scanners.document_reader import DocumentReadError
+from ..scanners.file_scanner import scan_bytes
 from ..scanners.text_scanner import scan_text
 from ..scanners.web_scanner import scan_site, scan_url
 from ..settings import ADMIN_PASSWORD, HTTP_TIMEOUT, MAX_SITE_DEPTH, MAX_SITE_PAGES, MAX_UPLOAD_BYTES
@@ -68,20 +70,16 @@ async def api_scan_file(file: UploadFile = File(...)) -> JSONResponse:
     if len(raw) > MAX_UPLOAD_BYTES:
         mb = MAX_UPLOAD_BYTES // (1024 * 1024)
         raise HTTPException(status_code=413, detail=f"上傳檔案過大 (>{mb}MB)")
-    text: Optional[str] = None
-    for enc in ("utf-8", "utf-8-sig", "big5", "cp950", "latin-1"):
-        try:
-            text = raw.decode(enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    if text is None:
-        raise HTTPException(status_code=415, detail="無法解碼此檔案 (疑似二進位)")
+
+    filename = file.filename or "upload"
 
     def _run() -> List[Finding]:
-        return detect_in_text(text, source=file.filename or "upload", detectors=get_active_detectors())
+        return scan_bytes(raw, filename, detectors=get_active_detectors())
 
-    findings = await asyncio.to_thread(_run)
+    try:
+        findings = await asyncio.to_thread(_run)
+    except DocumentReadError as exc:
+        raise HTTPException(status_code=415, detail=str(exc))
     return _respond(findings)
 
 

@@ -35,6 +35,10 @@ ENABLE_SURNAME_NAME = _bool_env("PII_ENABLE_SURNAME_NAME", False)
 # 頁尾維護/承辦人等依法公開姓名不列入個資；設 PII_EXCLUDE_PUBLIC_DISCLOSURE=false 可關閉
 EXCLUDE_PUBLIC_DISCLOSURE = _bool_env("PII_EXCLUDE_PUBLIC_DISCLOSURE", True)
 
+# Office / 開放文件 / PDF：工作表或 PDF 頁數上限、每工作表最多列數（B1 保守預設）
+MAX_DOCUMENT_SHEETS = _int_env("PII_MAX_DOCUMENT_SHEETS", 30)
+MAX_DOCUMENT_ROWS = _int_env("PII_MAX_DOCUMENT_ROWS", 5000)
+
 # 管理介面密碼；未設定則 /admin 不可用
 ADMIN_PASSWORD = os.getenv("PII_ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "")).strip()
 
