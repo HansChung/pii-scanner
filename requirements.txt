@@ -10,4 +10,5 @@ python-docx>=1.1
 pypdf>=4.0
 xlrd>=2.0
 azure-ai-textanalytics>=5.3.0
+azure-ai-documentintelligence>=1.0.0
 azure-core>=1.29.0

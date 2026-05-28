@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional
 
 from ..detectors import detect_in_text
 from ..detectors.base import BaseDetector, Finding
@@ -62,19 +62,26 @@ def scan_bytes(
     filename: str,
     *,
     detectors: Optional[Iterable[BaseDetector]] = None,
+    preview: Optional[Dict[str, str]] = None,
+    stats: Optional[Dict[str, object]] = None,
 ) -> List[Finding]:
-    """掃描記憶體中的檔案內容（文字檔或 Office/開放文件）。"""
+    """掃描記憶體中的檔案內容（文字檔或 Office/開放文件）。
+
+    - ``preview``：若提供，會以 ``{source: text}`` 寫入各分段原文。
+    - ``stats``：若提供，會寫入 OCR / 解析 metadata（例如 ``ocr_used``）。
+    """
     name = filename or "upload"
     ext = Path(name).suffix.lower()
     sniffed = sniff_document_suffix(data)
-    # 內容優先：避免 .xls 副檔名但實際為 .xlsx 等誤判
     doc_ext = sniffed if sniffed else (ext if ext in DOCUMENT_SUFFIXES else None)
 
     if doc_ext and doc_ext in DOCUMENT_SUFFIXES:
-        segments = extract_document_segments(data, name, ext=doc_ext)
+        segments = extract_document_segments(data, name, ext=doc_ext, stats=stats)
         findings: List[Finding] = []
         for seg in segments:
             findings.extend(detect_in_text(seg.text, detectors=detectors, source=seg.source))
+            if preview is not None:
+                preview[seg.source] = seg.text
         return findings
 
     if is_likely_binary(data):
@@ -93,6 +100,8 @@ def scan_bytes(
         raise DocumentReadError(
             "無法解碼此檔案；請上傳文字檔或支援的 Office/開放文件格式"
         )
+    if preview is not None:
+        preview[name] = text
     return detect_in_text(text, detectors=detectors, source=name)
 
 

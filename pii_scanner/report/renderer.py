@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Iterable, List, Optional
 
 from ..detectors.base import Finding, Severity
+from ..settings import PREVIEW_SEGMENT_MAX_CHARS, PREVIEW_TOTAL_MAX_CHARS
 from .source_label import (
     format_file_display_name,
     split_source_label,
@@ -51,10 +52,48 @@ def summarize(findings: Iterable[Finding]) -> dict:
     }
 
 
+def _prepare_preview(
+    preview: Optional[dict],
+    findings: List[Finding],
+    *,
+    only_sources_with_findings: bool = True,
+) -> List[dict]:
+    """將 ``{source: text}`` 整理為 API 友善的 preview 清單；包含截斷標記。
+
+    僅保留出現在 *findings* 的來源；每段超過 ``PREVIEW_SEGMENT_MAX_CHARS`` 會截斷，
+    全部加總超過 ``PREVIEW_TOTAL_MAX_CHARS`` 之後的段落直接略過並標 truncated。
+    """
+    if not preview:
+        return []
+    sources_with_findings = {f.source or "<inline>" for f in findings}
+    items: List[dict] = []
+    remaining = PREVIEW_TOTAL_MAX_CHARS
+    for source, text in preview.items():
+        if only_sources_with_findings and source not in sources_with_findings:
+            continue
+        if not text:
+            continue
+        truncated = False
+        seg_text = text
+        if len(seg_text) > PREVIEW_SEGMENT_MAX_CHARS:
+            seg_text = seg_text[:PREVIEW_SEGMENT_MAX_CHARS]
+            truncated = True
+        if remaining <= 0:
+            items.append({"source": source, "text": "", "truncated": True, "skipped": True})
+            continue
+        if len(seg_text) > remaining:
+            seg_text = seg_text[:remaining]
+            truncated = True
+        remaining -= len(seg_text)
+        items.append({"source": source, "text": seg_text, "truncated": truncated})
+    return items
+
+
 def findings_to_dict(
     findings: Iterable[Finding],
     meta: dict | None = None,
     scan_issues: Optional[List[dict]] = None,
+    preview: Optional[dict] = None,
 ) -> dict:
     findings = sorted(
         findings,
@@ -68,6 +107,10 @@ def findings_to_dict(
         out["meta"] = meta
     if scan_issues:
         out["scan_issues"] = scan_issues
+    if preview:
+        prepared = _prepare_preview(preview, findings)
+        if prepared:
+            out["preview"] = prepared
     return out
 
 
