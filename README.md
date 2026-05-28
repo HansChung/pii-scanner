@@ -107,8 +107,13 @@ uvicorn pii_scanner.web.app:app --host 0.0.0.0 --port 8000
 
 - 貼上文字即時掃描
 - 上傳檔案掃描（文字、Excel、開放文件格式，見下方）
-- 輸入單一 URL 掃描
-- 輸入起始 URL 進行整站爬取掃描
+- 輸入單一 URL 掃描（可直接貼上 PDF / Word / Excel 下載連結）
+- 輸入起始 URL 進行整站爬取掃描（會跟進頁面上的文件下載連結）
+
+### 網址與整站掃描中的文件
+
+單一 URL 若直接指向 `.pdf`、`.docx`、`.xlsx` 等支援格式，或 Content-Type 為對應 MIME 類型，會與檔案上傳相同方式解析（PDF 逐頁、Excel 逐工作表）。  
+整站爬取時，HTML 頁面上的文件下載連結也會被抓取並掃描（計入 `max_pages`；單檔上限 5 MB）。已達 `max_depth` 時仍會跟進文件連結，但不再展開更多 HTML 子頁。
 
 ### 上傳檔案格式
 
