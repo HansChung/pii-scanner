@@ -23,7 +23,7 @@ from .address import TaiwanAddressDetector
 from .name import ChineseNameDetector
 from .surname_name import SurnameNameDetector, SurnameMatchMode, find_surname_names
 
-ALL_DETECTORS: List[BaseDetector] = [
+_CORE_DETECTORS: List[BaseDetector] = [
     TaiwanIDDetector(),
     TaiwanResidentCertDetector(),
     TaiwanMobileDetector(),
@@ -39,9 +39,26 @@ ALL_DETECTORS: List[BaseDetector] = [
     BankAccountDetector(),
     DateOfBirthDetector(),
     TaiwanAddressDetector(),
-    ChineseNameDetector(),
-    SurnameNameDetector(),  # 百家姓全文掃描 (balanced)
+    ChineseNameDetector(),  # 關鍵字版姓名（姓名：XXX）
 ]
+
+_OPTIONAL_DETECTORS: List[BaseDetector] = [
+    SurnameNameDetector(),  # 百家姓全文；預設關閉，誤判率高
+]
+
+
+def get_active_detectors(*, include_surname: bool | None = None) -> List[BaseDetector]:
+    """回傳目前應啟用的偵測器清單。"""
+    from ..settings import ENABLE_SURNAME_NAME
+
+    use_surname = ENABLE_SURNAME_NAME if include_surname is None else include_surname
+    dets = list(_CORE_DETECTORS)
+    if use_surname:
+        dets.extend(_OPTIONAL_DETECTORS)
+    return dets
+
+
+ALL_DETECTORS: List[BaseDetector] = get_active_detectors()
 
 
 def _dedupe_findings(findings: List[Finding]) -> List[Finding]:
@@ -69,7 +86,7 @@ def detect_in_text(
 ) -> List[Finding]:
     """跑過所有 (或指定) 偵測器，回傳 :class:`Finding` 清單。"""
     if detectors is None:
-        detectors = ALL_DETECTORS
+        detectors = get_active_detectors()
     findings: List[Finding] = []
     for det in detectors:
         for f in det.detect(text):
@@ -82,6 +99,7 @@ def detect_in_text(
 
 __all__ = [
     "ALL_DETECTORS",
+    "get_active_detectors",
     "BaseDetector",
     "Finding",
     "Severity",

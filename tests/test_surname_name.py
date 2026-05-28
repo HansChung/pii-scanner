@@ -14,7 +14,8 @@ def _names(findings):
 
 
 def test_surname_detects_bare_name():
-    findings = SurnameNameDetector().detect("會議由王小明主持，陳大文也出席。")
+    # 句首或標點後較不易誤判；嵌入詞（淡江、國際）仍可能誤判，故預設關閉 surname_name
+    findings = SurnameNameDetector().detect("王小明主持，陳大文也出席。")
     values = {f.value for f in findings}
     assert "王小明" in values
     assert "陳大文" in values
@@ -57,10 +58,18 @@ def test_surname_masks_output():
     assert "林佳蓉" not in findings[0].masked
 
 
-def test_scan_text_includes_surname_name():
+def test_scan_text_excludes_surname_name_by_default():
     findings = scan_text("今日由張三完成報告。")
     detectors = {f.detector for f in findings}
-    assert "surname_name" in detectors
+    assert "surname_name" not in detectors
+
+
+def test_scan_text_includes_surname_name_when_enabled():
+    from pii_scanner.detectors import get_active_detectors
+
+    dets = get_active_detectors(include_surname=True)
+    findings = scan_text("王小明完成報告。", detectors=dets)
+    assert any(f.detector == "surname_name" for f in findings)
 
 
 def test_dedupe_keyword_and_surname_same_span():

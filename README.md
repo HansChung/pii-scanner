@@ -120,7 +120,35 @@ REST API 端點：
 | `POST` | `/api/scan/site` | `url`, `max_pages`, `max_depth` |
 | `GET`  | `/healthz` | — |
 
-## 部署至 Azure App Service (B1)
+## 管理介面與白名單
+
+### 百家姓偵測（預設關閉）
+
+`surname_name`（百家姓全文掃描）在網站內容容易誤判（如「淡江」「國際」「獎助學金」），**預設已關閉**。  
+僅保留 `chinese_name`（需有「姓名：」等關鍵字）。
+
+若需啟用百家姓：Azure 設定 `PII_ENABLE_SURNAME_NAME=true`（不建議用於整站爬蟲）。
+
+### 白名單管理 `/admin`
+
+1. Azure **應用程式設定** 新增：
+   ```
+   PII_ADMIN_PASSWORD = 你的管理密碼
+   PII_WHITELIST_PATH = /home/site/whitelist/config.json
+   ```
+   （`/home/site/` 在 App Service 重部署後仍保留）
+
+2. 開啟 `https://<你的-webapp>.azurewebsites.net/admin`  
+   帳號：`admin` / 密碼：上述設定值
+
+3. 可設定：
+   - **全域停用偵測器**（如 address、email）
+   - **全域忽略詞**（如公開 Email、校名）
+   - **依網域規則**（如 `tku.edu.tw` 停用地址偵測）
+
+範例：淡江官網掃描時，新增網域規則 `tku.edu.tw`，停用 `taiwan_address`，忽略詞填 `president@mail.tku.edu.tw`。
+
+---
 
 本專案已針對 **B1 Linux（1 vCPU / 1.75GB RAM）** 優化，無需 Presidio。
 
@@ -161,6 +189,8 @@ az webapp config set -g $RESOURCE_GROUP -n $WEBAPP --always-on true
 | `PII_MAX_UPLOAD_MB` | `5` | 上傳上限（預設 5MB） |
 | `PII_MAX_SITE_PAGES` | `10` | 整站爬蟲最多頁數 |
 | `PII_HTTP_TIMEOUT` | `15` | 單次 HTTP 逾時（秒） |
+| `PII_ADMIN_PASSWORD` | （自行設定） | 啟用 `/admin` 管理白名單 |
+| `PII_WHITELIST_PATH` | `/home/site/whitelist/config.json` | 白名單儲存路徑（Azure 建議） |
 
 升級至 S1 後可將 `WEB_CONCURRENCY` 改為 `2`、`PII_MAX_SITE_PAGES` 改為 `20`。
 

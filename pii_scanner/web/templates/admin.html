@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>白名單管理 — PII Scanner</title>
+<style>
+  body{font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;margin:0;background:#f4f6fb;color:#1f2330;}
+  header{background:#fff;border-bottom:1px solid #dde1ee;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+  header h1{margin:0;font-size:20px;}
+  header a{color:#2a3da7;text-decoration:none;font-size:14px;}
+  main{max-width:960px;margin:24px auto;padding:0 24px 48px;}
+  section{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 2px 10px rgba(20,30,80,.06);}
+  section h2{margin:0 0 12px;font-size:16px;}
+  p.hint{margin:0 0 12px;color:#5b607a;font-size:13px;line-height:1.5;}
+  label{font-size:13px;font-weight:600;display:block;margin:10px 0 6px;}
+  textarea,input[type=text]{width:100%;padding:10px;border:1px solid #c8cce0;border-radius:8px;font-size:14px;font-family:inherit;}
+  textarea{min-height:100px;}
+  .det-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;}
+  .det-grid label{font-weight:400;display:flex;align-items:center;gap:6px;margin:0;font-size:13px;}
+  .domain-card{border:1px solid #e3e6f0;border-radius:10px;padding:14px;margin-top:12px;background:#fafbff;}
+  .domain-card h3{margin:0 0 8px;font-size:14px;}
+  button{padding:10px 18px;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px;}
+  button.primary{background:#2a3da7;color:#fff;}
+  button.secondary{background:#eef0fa;color:#2a3da7;}
+  button.danger{background:#fde2e2;color:#a40000;}
+  .toolbar{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;}
+  .msg{padding:10px 14px;border-radius:8px;margin-bottom:12px;font-size:14px;display:none;}
+  .msg.ok{display:block;background:#e6f7ed;color:#0d6630;border:1px solid #9fdcb3;}
+  .msg.err{display:block;background:#fde2e2;color:#800;border:1px solid #f5b5b5;}
+</style>
+</head>
+<body>
+<header>
+  <h1>白名單管理</h1>
+  <a href="/">← 返回掃描首頁</a>
+</header>
+<main>
+  <div id="msg" class="msg"></div>
+
+  <section>
+    <h2>全域設定</h2>
+    <p class="hint">停用的偵測器在所有掃描中都不會回報。建議保持停用「百家姓全文 (surname_name)」，除非有特殊需求。</p>
+    <label>停用的偵測器</label>
+    <div id="global-detectors" class="det-grid"></div>
+    <label>全域忽略詞（每行一個，命中值或上下文包含即略過）</label>
+    <textarea id="ignore-words" placeholder="淡江大學&#10;public@example.com"></textarea>
+  </section>
+
+  <section>
+    <h2>依網域規則</h2>
+    <p class="hint">針對特定網站放寬規則。例如校系官網可停用地址/姓名偵測，或忽略公開聯絡 Email。</p>
+    <div id="domain-rules"></div>
+    <div class="toolbar">
+      <button type="button" class="secondary" id="btn-add-domain">+ 新增網域規則</button>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <button type="button" class="primary" id="btn-save">儲存白名單</button>
+    <button type="button" class="secondary" id="btn-reload">重新載入</button>
+  </div>
+</main>
+<script>
+const DETECTOR_LABELS = {
+  surname_name: '百家姓全文 (surname_name)',
+  chinese_name: '關鍵字姓名 (chinese_name)',
+  taiwan_address: '台灣地址',
+  taiwan_id: '身分證',
+  taiwan_mobile: '手機',
+  email: 'Email',
+  ipv4: 'IPv4',
+  taiwan_landline: '市話',
+  credit_card: '信用卡',
+  taiwan_business_id: '統編',
+  taiwan_passport: '護照',
+  taiwan_nhi_card: '健保卡',
+  bank_account: '銀行帳號',
+  date_of_birth: '生日',
+  taiwan_license_plate: '車牌',
+  ipv6: 'IPv6',
+  taiwan_resident_cert: '居留證',
+};
+
+let detectors = [];
+let config = null;
+
+function showMsg(text, ok=true) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+function renderGlobalDetectors() {
+  const box = document.getElementById('global-detectors');
+  const disabled = new Set(config.global_disabled_detectors || []);
+  box.innerHTML = detectors.map(name => {
+    const label = DETECTOR_LABELS[name] || name;
+    const checked = disabled.has(name) ? 'checked' : '';
+    return `<label><input type="checkbox" data-global-det="${name}" ${checked}> ${label}</label>`;
+  }).join('');
+}
+
+function renderDomainRules() {
+  const box = document.getElementById('domain-rules');
+  box.innerHTML = '';
+  (config.domain_rules || []).forEach((rule, idx) => {
+    const div = document.createElement('div');
+    div.className = 'domain-card';
+    div.dataset.idx = idx;
+    const detChecks = detectors.map(name => {
+      const on = (rule.disabled_detectors || []).includes(name);
+      const label = DETECTOR_LABELS[name] || name;
+      return `<label><input type="checkbox" data-idx="${idx}" data-det="${name}" ${on?'checked':''}> ${label}</label>`;
+    }).join('');
+    div.innerHTML = `
+      <h3>網域 #${idx + 1}</h3>
+      <label>網域（例：tku.edu.tw）</label>
+      <input type="text" data-field="domain" data-idx="${idx}" value="${escapeHtml(rule.domain||'')}">
+      <label>此網域停用的偵測器</label>
+      <div class="det-grid">${detChecks}</div>
+      <label>此網域忽略詞（每行一個）</label>
+      <textarea data-field="ignore_words" data-idx="${idx}">${escapeHtml((rule.ignore_words||[]).join('\n'))}</textarea>
+      <div class="toolbar"><button type="button" class="danger" data-remove="${idx}">刪除此規則</button></div>
+    `;
+    box.appendChild(div);
+  });
+}
+
+function escapeHtml(s) {
+  return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+}
+
+function collectConfig() {
+  const globalDisabled = [...document.querySelectorAll('[data-global-det]')]
+    .filter(el => el.checked).map(el => el.dataset.globalDet);
+  const ignoreWords = document.getElementById('ignore-words').value
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  const domainRules = (config.domain_rules || []).map((rule, idx) => {
+    const domainEl = document.querySelector(`input[data-field="domain"][data-idx="${idx}"]`);
+    const wordsEl = document.querySelector(`textarea[data-field="ignore_words"][data-idx="${idx}"]`);
+    const disabled = [...document.querySelectorAll(`input[data-idx="${idx}"][data-det]`)]
+      .filter(el => el.checked).map(el => el.dataset.det);
+    return {
+      domain: (domainEl?.value || '').trim(),
+      disabled_detectors: disabled,
+      ignore_words: (wordsEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean),
+    };
+  }).filter(r => r.domain);
+  return {
+    version: 1,
+    global_disabled_detectors: globalDisabled,
+    ignore_words: ignoreWords,
+    domain_rules: domainRules,
+  };
+}
+
+async function loadConfig() {
+  const resp = await fetch('/admin/api/config');
+  if (!resp.ok) { showMsg('載入失敗：' + resp.status, false); return; }
+  const data = await resp.json();
+  detectors = data.detectors || [];
+  config = data.config || {};
+  document.getElementById('ignore-words').value = (config.ignore_words || []).join('\n');
+  renderGlobalDetectors();
+  renderDomainRules();
+}
+
+document.getElementById('btn-save').addEventListener('click', async () => {
+  const body = collectConfig();
+  const resp = await fetch('/admin/api/config', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    showMsg(err.detail || '儲存失敗', false);
+    return;
+  }
+  config = body;
+  showMsg('白名單已儲存');
+});
+
+document.getElementById('btn-reload').addEventListener('click', loadConfig);
+
+document.getElementById('btn-add-domain').addEventListener('click', () => {
+  config.domain_rules = config.domain_rules || [];
+  config.domain_rules.push({domain:'', disabled_detectors:[], ignore_words:[]});
+  renderDomainRules();
+});
+
+document.getElementById('domain-rules').addEventListener('click', e => {
+  const rm = e.target.dataset.remove;
+  if (rm !== undefined) {
+    config.domain_rules.splice(Number(rm), 1);
+    renderDomainRules();
+  }
+});
+
+loadConfig();
+</script>
+</body></html>
