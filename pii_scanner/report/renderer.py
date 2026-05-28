@@ -102,10 +102,14 @@ def render_terminal(findings: Iterable[Finding], use_color: bool = True) -> str:
         )
     if summary.get("by_file"):
         lines.append("")
-        lines.append(f"{c('bold')}依檔案摘要{c('reset')}")
+        lines.append(f"{c('bold')}依頁面 / 檔案摘要{c('reset')}")
         for row in summary["by_file"]:
-            name = format_file_display_name(row["file"])
-            lines.append(f"  {c('bold')}{name}{c('reset')} ({row['file']}) — {row['total']} 筆")
+            kind = row.get("kind_label") or ""
+            name = row.get("display") or format_file_display_name(row["file"])
+            prefix = f"[{kind}] " if kind else ""
+            lines.append(
+                f"  {c('bold')}{prefix}{name}{c('reset')} ({row['file']}) — {row['total']} 筆"
+            )
             for loc in row["locations"]:
                 lines.append(f"    · {loc['label']}: {loc['count']}")
     lines.append("")
@@ -182,10 +186,10 @@ def render_html(findings: Iterable[Finding], scan_issues: Optional[List[dict]] =
         loc_text = "、".join(
             f"{html_lib.escape(loc['label'])} ({loc['count']})" for loc in row["locations"]
         )
-        display = html_lib.escape(format_file_display_name(row["file"]))
         full = html_lib.escape(row["file"])
         file_rows.append(
-            f"<tr><td><strong>{display}</strong>"
+            f"<tr><td>{html_lib.escape(row.get('kind_label') or '—')}</td>"
+            f"<td><strong>{html_lib.escape(row.get('display') or format_file_display_name(row['file']))}</strong>"
             f'<div class="src">{full}</div></td>'
             f"<td>{row['total']}</td>"
             f"<td>{loc_text}</td></tr>"
@@ -199,7 +203,7 @@ def render_html(findings: Iterable[Finding], scan_issues: Optional[List[dict]] =
         )
         issue_block = (
             '<div class="summary" style="border-left:4px solid #aa4400">'
-            "<strong>無法掃描的檔案</strong>"
+            "<strong>無法掃描的 URL / 檔案</strong>"
             f"<ul style=\"margin:8px 0 0;padding-left:20px\">{issue_items}</ul></div>"
         )
     rows: List[str] = []
@@ -229,9 +233,9 @@ def render_html(findings: Iterable[Finding], scan_issues: Optional[List[dict]] =
     file_table = ""
     if file_rows:
         file_table = (
-            '<h2 style="font-size:18px;margin:24px 0 8px">依檔案摘要</h2>'
+            '<h2 style="font-size:18px;margin:24px 0 8px">依頁面 / 檔案摘要</h2>'
             "<table><thead><tr>"
-            "<th>檔案</th><th>命中數</th><th>位置明細</th>"
+            "<th>類型</th><th>頁面 / 檔案</th><th>命中數</th><th>位置明細</th>"
             "</tr></thead><tbody>"
             + "\n".join(file_rows)
             + "</tbody></table>"

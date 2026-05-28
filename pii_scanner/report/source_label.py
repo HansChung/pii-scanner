@@ -2,10 +2,36 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 from typing import Iterable, List, Optional
 from urllib.parse import urlparse
 
 from ..detectors.base import Finding
+from ..scanners.document_reader import DOCUMENT_SUFFIXES
+
+
+def source_kind(file_key: str) -> str:
+    """來源類型：web_page / web_document / file / inline。"""
+    if file_key == "<inline>":
+        return "inline"
+    if "://" in file_key:
+        path = urlparse(file_key).path
+        if Path(path).suffix.lower() in DOCUMENT_SUFFIXES:
+            return "web_document"
+        return "web_page"
+    return "file"
+
+
+SOURCE_KIND_LABELS = {
+    "web_page": "網頁",
+    "web_document": "下載文件",
+    "file": "本機檔案",
+    "inline": "內嵌",
+}
+
+
+def source_kind_label(kind: str) -> str:
+    return SOURCE_KIND_LABELS.get(kind, kind)
 
 
 def split_source_label(source: Optional[str]) -> dict:
@@ -71,14 +97,27 @@ def summarize_by_file(findings: Iterable[Finding]) -> List[dict]:
                 key=lambda kv: (-kv[1], kv[0]),
             )
         ]
-        rows.append({"file": file_key, "total": total, "locations": locations})
+        kind = source_kind(file_key)
+        rows.append(
+            {
+                "file": file_key,
+                "total": total,
+                "locations": locations,
+                "kind": kind,
+                "kind_label": source_kind_label(kind),
+                "display": format_file_display_name(file_key),
+            }
+        )
     return rows
 
 
 def format_file_display_name(file_key: str) -> str:
-    """網址只顯示路徑末段檔名（若可解析）。"""
-    if "://" in file_key:
-        path = urlparse(file_key).path
-        name = path.rsplit("/", 1)[-1]
-        return name or file_key
-    return file_key
+    """網址顯示路徑末段檔名；一般網頁則顯示路徑或網域。"""
+    if "://" not in file_key:
+        return Path(file_key).name or file_key
+    parsed = urlparse(file_key)
+    path = parsed.path
+    name = path.rsplit("/", 1)[-1]
+    if name:
+        return name
+    return parsed.netloc or file_key

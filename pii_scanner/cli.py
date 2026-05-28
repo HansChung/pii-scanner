@@ -113,10 +113,17 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.cmd == "scan-url":
         from .scanners.web_scanner import scan_url
-        findings = scan_url(args.url, verify_tls=not args.insecure)
-        _output(findings, args.format, args.output)
+        url_issues: list = []
+        findings = scan_url(args.url, verify_tls=not args.insecure, issues=url_issues)
+        _output(
+            findings,
+            args.format,
+            args.output,
+            scan_issues=[i.to_dict() for i in url_issues],
+        )
     elif args.cmd == "scan-site":
         from .scanners.web_scanner import scan_site
+        site_issues: list = []
         findings = scan_site(
             args.url,
             max_pages=args.max_pages,
@@ -125,8 +132,14 @@ def main(argv: list[str] | None = None) -> int:
             respect_robots=not args.no_robots,
             same_origin=not args.allow_cross_origin,
             verify_tls=not args.insecure,
+            issues=site_issues,
         )
-        _output(findings, args.format, args.output)
+        _output(
+            findings,
+            args.format,
+            args.output,
+            scan_issues=[i.to_dict() for i in site_issues],
+        )
 
     return 0 if not findings else 1
 

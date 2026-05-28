@@ -17,15 +17,20 @@ class ScanMeta:
     ai_chars_analyzed: int = 0
     ai_warning: Optional[str] = None
     scanned_file: Optional[str] = None
+    scanned_url: Optional[str] = None
+    pages_scanned: Optional[int] = None
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "ai_requested": self.ai_requested,
             "ai_used": self.ai_used,
             "ai_chars_analyzed": self.ai_chars_analyzed,
             "ai_warning": self.ai_warning,
             "scanned_file": self.scanned_file,
+            "scanned_url": self.scanned_url,
+            "pages_scanned": self.pages_scanned,
         }
+        return {k: v for k, v in out.items() if v is not None}
 
 
 def maybe_enhance_with_ai(

@@ -143,16 +143,26 @@ async def api_scan_url(
 ) -> JSONResponse:
     ai = _parse_use_ai(use_ai)
 
-    def _run() -> tuple[List[Finding], ScanMeta]:
-        findings = scan_url(url, timeout=HTTP_TIMEOUT, detectors=get_active_detectors())
+    def _run() -> tuple[List[Finding], ScanMeta, list]:
+        url_issues: list = []
+        findings = scan_url(
+            url,
+            timeout=HTTP_TIMEOUT,
+            detectors=get_active_detectors(),
+            issues=url_issues,
+        )
         text = fetch_url_text(url, timeout=HTTP_TIMEOUT) if ai else ""
-        return maybe_enhance_with_ai(text, findings, source=url, use_ai=ai and bool(text.strip()))
+        findings, meta = maybe_enhance_with_ai(
+            text, findings, source=url, use_ai=ai and bool(text.strip())
+        )
+        meta.scanned_url = url
+        return findings, meta, url_issues
 
     try:
-        findings, meta = await asyncio.to_thread(_run)
+        findings, meta, url_issues = await asyncio.to_thread(_run)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"抓取 URL 失敗：{exc}")
-    return _respond(findings, meta)
+    return _respond(findings, meta, scan_issues=[i.to_dict() for i in url_issues])
 
 
 @app.post("/api/scan/site")
@@ -166,27 +176,34 @@ async def api_scan_site(
     pages = min(max(1, max_pages), MAX_SITE_PAGES)
     depth = min(max(0, max_depth), MAX_SITE_DEPTH)
 
-    def _run() -> tuple[List[Finding], ScanMeta]:
+    def _run() -> tuple[List[Finding], ScanMeta, list]:
+        site_issues: list = []
+        stats: dict = {}
         findings = scan_site(
             url,
             max_pages=pages,
             max_depth=depth,
             timeout=HTTP_TIMEOUT,
             detectors=get_active_detectors(),
+            issues=site_issues,
+            stats=stats,
         )
         meta = ScanMeta(ai_requested=ai)
+        meta.scanned_url = stats.get("start_url", url)
+        if stats.get("pages_scanned") is not None:
+            meta.pages_scanned = stats["pages_scanned"]
         if ai and not AI_ALLOW_SITE_SCAN:
             meta.ai_warning = (
                 "整站爬取預設不使用 Azure AI（避免多頁費用過高）。"
                 "若需啟用請設定 PII_AI_ALLOW_SITE_SCAN=true。"
             )
-        return findings, meta
+        return findings, meta, site_issues
 
     try:
-        findings, meta = await asyncio.to_thread(_run)
+        findings, meta, site_issues = await asyncio.to_thread(_run)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"爬取網站失敗：{exc}")
-    return _respond(findings, meta)
+    return _respond(findings, meta, scan_issues=[i.to_dict() for i in site_issues])
 
 
 @app.post("/api/scan/text/html", response_class=HTMLResponse)

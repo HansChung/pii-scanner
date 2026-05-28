@@ -55,6 +55,22 @@ def test_summarize_includes_by_file():
     assert summary["by_file"][0]["file"] == "a.pdf"
 
 
+def test_summarize_by_file_web_document_kind():
+    url = "https://example.com/files/report.pdf"
+    summary = summarize_by_file([_finding(f"{url}#page=1"), _finding(f"{url}#page=2")])
+    assert summary[0]["kind"] == "web_document"
+    assert summary[0]["kind_label"] == "下載文件"
+    assert summary[0]["display"] == "report.pdf"
+    assert summary[0]["total"] == 2
+
+
+def test_summarize_by_file_web_page_kind():
+    url = "https://example.com/contact"
+    summary = summarize_by_file([_finding(url)])
+    assert summary[0]["kind"] == "web_page"
+    assert summary[0]["kind_label"] == "網頁"
+
+
 def test_scan_directory_collects_issues(tmp_path):
     bad = tmp_path / "broken.xlsx"
     bad.write_bytes(b"not excel")

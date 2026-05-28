@@ -1,7 +1,8 @@
 """網站掃描器：抓取 URL，剝去 HTML 後跑 PII 偵測。
 
-預設遵守同一網域、深度限制與 robots.txt。網路存取使用 requests，
-若環境無安裝 requests / beautifulsoup4，會於匯入時報出明確訊息。
+預設遵守同一網域、深度限制與 robots.txt。若 URL 或頁面中的下載連結指向
+PDF、Word、Excel 等支援格式，會以與檔案上傳相同方式解析（逐頁 / 逐工作表），
+命中結果的 source 會保留完整 URL 以便依頁面/檔案彙總。
 """
 from __future__ import annotations
 
@@ -9,12 +10,17 @@ import logging
 import re
 import time
 from collections import deque
+from pathlib import Path
 from typing import Iterable, List, Optional, Set
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 from ..detectors import detect_in_text
 from ..detectors.base import BaseDetector, Finding
+from .document_reader import DOCUMENT_SUFFIXES, DocumentReadError, extract_document_segments
+from .file_scanner import MAX_FILE_BYTES, scan_bytes
+from .format_sniff import sniff_document_suffix
+from .scan_issue import ScanIssue
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +38,15 @@ else:
 DEFAULT_HEADERS = {
     "User-Agent": "pii-scanner/0.1 (+https://example.com/pii-scanner)",
     "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+}
+
+DOCUMENT_CONTENT_TYPES = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.oasis.opendocument.text": ".odt",
+    "application/vnd.oasis.opendocument.spreadsheet": ".ods",
 }
 
 
@@ -69,6 +84,89 @@ def _allowed_by_robots(url: str, user_agent: str, cache: dict) -> bool:
     return rp.can_fetch(user_agent, url)
 
 
+def _suffix_from_url_path(url: str) -> Optional[str]:
+    path = unquote(urlparse(url).path)
+    ext = Path(path).suffix.lower()
+    if ext in DOCUMENT_SUFFIXES:
+        return ext
+    return None
+
+
+def is_document_url(url: str) -> bool:
+    """URL 路徑是否為支援的二進位文件副檔名。"""
+    return _suffix_from_url_path(url) is not None
+
+
+def _filename_from_url(url: str, doc_ext: Optional[str] = None) -> str:
+    path = unquote(urlparse(url).path)
+    name = Path(path).name or "download"
+    if doc_ext and not name.lower().endswith(doc_ext):
+        name = f"{Path(name).stem}{doc_ext}"
+    return name
+
+
+def _resolve_document_ext(url: str, content_type: str, data: bytes) -> Optional[str]:
+    sniffed = sniff_document_suffix(data[:65536])
+    if sniffed:
+        return sniffed
+    suffix = _suffix_from_url_path(url)
+    if suffix:
+        return suffix
+    ct = content_type.split(";", 1)[0].strip().lower()
+    return DOCUMENT_CONTENT_TYPES.get(ct)
+
+
+def _rewrite_document_sources(findings: List[Finding], url: str) -> None:
+    """將 scan_bytes 的檔名 source 改為完整 URL（含 #page / #工作表）。"""
+    for f in findings:
+        if not f.source:
+            f.source = url
+            continue
+        if "#" in f.source:
+            loc = f.source.split("#", 1)[1]
+            f.source = f"{url}#{loc}"
+        else:
+            f.source = url
+
+
+def _document_segments_to_text(data: bytes, url: str, doc_ext: str) -> str:
+    filename = _filename_from_url(url, doc_ext)
+    if len(data) > MAX_FILE_BYTES:
+        data = data[:MAX_FILE_BYTES]
+    segments = extract_document_segments(data, filename, ext=doc_ext)
+    parts = [seg.text for seg in segments if seg.text.strip()]
+    return "\n\n".join(parts)
+
+
+def _scan_response_as_document(
+    data: bytes,
+    url: str,
+    doc_ext: str,
+    *,
+    detectors: Optional[Iterable[BaseDetector]] = None,
+    issues: Optional[List[ScanIssue]] = None,
+) -> List[Finding]:
+    truncated = len(data) > MAX_FILE_BYTES
+    if truncated:
+        log.warning("文件 %s 超過 %s bytes，已截斷掃描", url, MAX_FILE_BYTES)
+        if issues is not None:
+            issues.append(
+                ScanIssue(url, f"文件超過 {MAX_FILE_BYTES // (1024 * 1024)} MB，已截斷後掃描")
+            )
+        data = data[:MAX_FILE_BYTES]
+    filename = _filename_from_url(url, doc_ext)
+    try:
+        findings = scan_bytes(data, filename, detectors=detectors)
+        _rewrite_document_sources(findings, url)
+        return findings
+    except DocumentReadError as exc:
+        msg = f"無法解析下載文件：{exc}"
+        log.warning("%s — %s", url, msg)
+        if issues is not None:
+            issues.append(ScanIssue(url, msg))
+        return []
+
+
 def fetch_url_text(
     url: str,
     *,
@@ -76,7 +174,7 @@ def fetch_url_text(
     headers: Optional[dict] = None,
     verify_tls: bool = True,
 ) -> str:
-    """抓取 URL 並回傳純文字（供 AI 增強）。"""
+    """抓取 URL 並回傳純文字（供 AI 增強；含 PDF/Word 等文件文字擷取）。"""
     _check_runtime()
     h = dict(DEFAULT_HEADERS)
     if headers:
@@ -84,6 +182,13 @@ def fetch_url_text(
     resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
     resp.raise_for_status()
     content_type = resp.headers.get("Content-Type", "")
+    data = resp.content
+    doc_ext = _resolve_document_ext(url, content_type, data)
+    if doc_ext:
+        try:
+            return _document_segments_to_text(data, url, doc_ext)
+        except DocumentReadError:
+            return ""
     if "html" in content_type or "xml" in content_type:
         return _html_to_text(resp.text)
     return resp.text
@@ -96,15 +201,27 @@ def scan_url(
     timeout: float = 10.0,
     headers: Optional[dict] = None,
     verify_tls: bool = True,
+    issues: Optional[List[ScanIssue]] = None,
 ) -> List[Finding]:
-    """抓取單一 URL 並掃描。"""
+    """抓取單一 URL 並掃描（HTML 頁面或直接指向 PDF/Word/Excel 等文件 URL）。"""
     _check_runtime()
     h = dict(DEFAULT_HEADERS)
     if headers:
         h.update(headers)
-    resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        if issues is not None:
+            issues.append(ScanIssue(url, f"抓取失敗：{exc}"))
+        raise
     content_type = resp.headers.get("Content-Type", "")
+    data = resp.content
+    doc_ext = _resolve_document_ext(url, content_type, data)
+    if doc_ext:
+        return _scan_response_as_document(
+            data, url, doc_ext, detectors=detectors, issues=issues
+        )
     if "html" in content_type or "xml" in content_type:
         text = _html_to_text(resp.text)
     else:
@@ -134,8 +251,10 @@ def scan_site(
     timeout: float = 10.0,
     headers: Optional[dict] = None,
     verify_tls: bool = True,
+    issues: Optional[List[ScanIssue]] = None,
+    stats: Optional[dict] = None,
 ) -> List[Finding]:
-    """以 BFS 走訪同網域連結並掃描每個頁面。"""
+    """以 BFS 走訪同網域連結並掃描每個頁面與可下載文件。"""
     _check_runtime()
     h = dict(DEFAULT_HEADERS)
     if headers:
@@ -156,29 +275,45 @@ def scan_site(
         visited.add(url)
         if respect_robots and not _allowed_by_robots(url, user_agent, robots_cache):
             log.info("robots.txt 拒絕掃描 %s", url)
+            if issues is not None:
+                issues.append(ScanIssue(url, "robots.txt 拒絕掃描"))
             continue
         try:
             resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
             resp.raise_for_status()
         except Exception as exc:  # noqa: BLE001
             log.warning("抓取 %s 失敗：%s", url, exc)
+            if issues is not None:
+                issues.append(ScanIssue(url, f"抓取失敗：{exc}"))
             continue
 
         pages_scanned += 1
         content_type = resp.headers.get("Content-Type", "")
-        if "html" in content_type:
+        data = resp.content
+        doc_ext = _resolve_document_ext(url, content_type, data)
+        if doc_ext:
+            findings.extend(
+                _scan_response_as_document(
+                    data, url, doc_ext, detectors=detectors, issues=issues
+                )
+            )
+        elif "html" in content_type:
             text = _html_to_text(resp.text)
             findings.extend(detect_in_text(text, detectors=detectors, source=url))
-            if depth < max_depth:
-                for link in _extract_links(url, resp.text):
-                    if same_origin and urlparse(link).netloc != start_origin:
-                        continue
-                    if link not in visited:
-                        queue.append((link, depth + 1))
+            for link in _extract_links(url, resp.text):
+                if same_origin and urlparse(link).netloc != start_origin:
+                    continue
+                if link in visited:
+                    continue
+                if depth < max_depth or is_document_url(link):
+                    queue.append((link, depth + 1))
         elif "text" in content_type or "json" in content_type:
             findings.extend(detect_in_text(resp.text, detectors=detectors, source=url))
 
         if delay > 0:
             time.sleep(delay)
 
+    if stats is not None:
+        stats["pages_scanned"] = pages_scanned
+        stats["start_url"] = start_url
     return findings

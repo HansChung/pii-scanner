@@ -139,12 +139,14 @@
 
   <section class="panel hidden" data-panel="url">
     <label for="url">要掃描的 URL</label>
-    <input type="url" id="url" placeholder="https://example.com/page">
+    <p class="file-hint">可輸入一般網頁，或直接貼上 <strong>PDF / Word (.docx) / Excel</strong> 下載連結。結果會依<strong>頁面或下載檔</strong>彙總，文件格式會標示工作表或頁碼。</p>
+    <input type="url" id="url" placeholder="https://example.com/page 或 https://example.com/files/report.pdf">
     <button class="primary" id="btn-url">抓取並掃描</button>
   </section>
 
   <section class="panel hidden" data-panel="site">
     <label for="site-url">起始 URL</label>
+    <p class="file-hint">爬取 HTML 頁面時會跟進 <strong>PDF / Word / Excel</strong> 下載連結。報告依<strong>各 URL / 下載檔</strong>列出命中摘要；無法抓取或解析的連結會單獨列出。</p>
     <input type="url" id="site-url" placeholder="https://example.com">
     <div class="row">
       <div>
@@ -248,6 +250,13 @@ function renderResults(data) {
     if (data.meta.scanned_file) {
       html += `<div style="margin-top:8px;color:#555;font-size:13px">掃描檔案：<strong>${escapeHtml(data.meta.scanned_file)}</strong></div>`;
     }
+    if (data.meta.scanned_url) {
+      html += `<div style="margin-top:8px;color:#555;font-size:13px">掃描網址：<strong>${escapeHtml(data.meta.scanned_url)}</strong>`;
+      if (data.meta.pages_scanned != null) {
+        html += ` · 已掃描 ${data.meta.pages_scanned} 個 URL`;
+      }
+      html += `</div>`;
+    }
     if (data.meta.ai_used) {
       html += `<div style="margin-top:8px;color:#1d3d8a;font-size:13px">🤖 已使用 Azure AI 增強（分析 ${data.meta.ai_chars_analyzed} 字）</div>`;
     } else if (data.meta.ai_requested && data.meta.ai_warning) {
@@ -257,7 +266,7 @@ function renderResults(data) {
   html += `</div>`;
 
   if (data.scan_issues && data.scan_issues.length) {
-    html += '<div class="warn-box"><strong>無法掃描的檔案</strong><ul>';
+    html += '<div class="warn-box"><strong>無法掃描的 URL / 檔案</strong><ul>';
     for (const issue of data.scan_issues) {
       html += `<li><code>${escapeHtml(issue.path)}</code> — ${escapeHtml(issue.reason)}</li>`;
     }
@@ -265,14 +274,16 @@ function renderResults(data) {
   }
 
   if (s.by_file && s.by_file.length) {
-    html += '<h3 class="section-title">依檔案摘要</h3><table><thead><tr>'
-         + '<th>檔案</th><th>命中數</th><th>位置明細</th></tr></thead><tbody>';
+    html += '<h3 class="section-title">依頁面 / 檔案摘要</h3><table><thead><tr>'
+         + '<th>類型</th><th>頁面 / 檔案</th><th>命中數</th><th>位置明細</th></tr></thead><tbody>';
     for (const row of s.by_file) {
-      const display = fileDisplayName(row.file);
+      const display = row.display || fileDisplayName(row.file);
+      const kind = row.kind_label || '—';
       const locs = (row.locations || [])
         .map(loc => `${escapeHtml(loc.label || locationLabel(loc.location))} (${loc.count})`)
         .join('、');
       html += `<tr>
+        <td>${escapeHtml(kind)}</td>
         <td><strong>${escapeHtml(display)}</strong>
             <div class="sub-src">${escapeHtml(row.file)}</div></td>
         <td>${row.total}</td>
@@ -287,7 +298,7 @@ function renderResults(data) {
   } else {
     html += '<h3 class="section-title">命中明細</h3><table><thead><tr>'
          + '<th>嚴重度</th><th>偵測器</th><th>類別</th><th>命中 (遮罩)</th>'
-         + '<th>檔案 / 位置</th><th>上下文</th></tr></thead><tbody>';
+         + '<th>檔案 / 頁面 / 位置</th><th>上下文</th></tr></thead><tbody>';
     for (const f of data.findings) {
       const parts = splitSource(f.source);
       const display = fileDisplayName(parts.file);
