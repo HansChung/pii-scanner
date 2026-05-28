@@ -83,7 +83,11 @@ def load_whitelist(path: Optional[Path] = None) -> WhitelistConfig:
     with _lock:
         if not p.exists():
             cfg = WhitelistConfig.from_dict(DEFAULT_CONFIG)
-            save_whitelist(cfg, path=p)
+            try:
+                save_whitelist(cfg, path=p)
+            except OSError:
+                # Azure 路徑尚未就緒時仍回傳預設值，避免 API 502
+                pass
             return cfg
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -95,10 +99,13 @@ def load_whitelist(path: Optional[Path] = None) -> WhitelistConfig:
 def save_whitelist(config: WhitelistConfig, path: Optional[Path] = None) -> None:
     p = path or WHITELIST_PATH
     with _lock:
-        _ensure_parent(p)
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(p)
+        try:
+            _ensure_parent(p)
+            tmp = p.with_suffix(".tmp")
+            tmp.write_text(json.dumps(config.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.replace(p)
+        except OSError as exc:
+            raise OSError(f"無法寫入白名單 ({p})：{exc}") from exc
 
 
 def _domain_from_source(source: Optional[str]) -> Optional[str]:
@@ -159,8 +166,6 @@ def apply_whitelist(
 
 
 def list_known_detectors() -> List[str]:
-    from ..detectors import ALL_DETECTORS, get_active_detectors
+    from ..detectors import ALL_DETECTOR_NAMES
 
-    names = {d.name for d in ALL_DETECTORS}
-    names.update(d.name for d in get_active_detectors())
-    return sorted(names)
+    return list(ALL_DETECTOR_NAMES)

@@ -16,7 +16,7 @@ import secrets
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
@@ -132,21 +132,25 @@ def admin_page(_: str = Depends(_require_admin)) -> HTMLResponse:
 
 @app.get("/admin/api/config")
 def admin_get_config(_: str = Depends(_require_admin)) -> JSONResponse:
-    cfg = load_whitelist()
-    return JSONResponse({"config": cfg.to_dict(), "detectors": list_known_detectors()})
+    try:
+        cfg = load_whitelist()
+        return JSONResponse({"config": cfg.to_dict(), "detectors": list_known_detectors()})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"讀取白名單失敗：{exc}")
 
 
 @app.put("/admin/api/config")
-async def admin_put_config(payload: dict, _: str = Depends(_require_admin)) -> JSONResponse:
+async def admin_put_config(
+    payload: dict = Body(...),
+    _: str = Depends(_require_admin),
+) -> JSONResponse:
     try:
         cfg = WhitelistConfig.from_dict(payload)
+        save_whitelist(cfg)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     except (TypeError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=f"格式錯誤：{exc}")
-    if not cfg.global_disabled_detectors and "surname_name" not in [
-        d for r in cfg.domain_rules for d in r.disabled_detectors
-    ]:
-        pass  # 允許管理員自行決定
-    save_whitelist(cfg)
     return JSONResponse({"ok": True, "config": cfg.to_dict()})
 
 

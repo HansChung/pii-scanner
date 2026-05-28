@@ -156,20 +156,27 @@ function collectConfig() {
 }
 
 async function loadConfig() {
-  const resp = await fetch('/admin/api/config');
-  if (!resp.ok) { showMsg('載入失敗：' + resp.status, false); return; }
+  const resp = await fetch('/admin/api/config', { credentials: 'same-origin' });
+  if (!resp.ok) {
+    let detail = '';
+    try { detail = (await resp.json()).detail || ''; } catch (_) {}
+    showMsg('載入失敗：' + resp.status + (detail ? ' — ' + detail : ''), false);
+    return;
+  }
   const data = await resp.json();
   detectors = data.detectors || [];
   config = data.config || {};
   document.getElementById('ignore-words').value = (config.ignore_words || []).join('\n');
   renderGlobalDetectors();
   renderDomainRules();
+  showMsg('白名單已載入');
 }
 
 document.getElementById('btn-save').addEventListener('click', async () => {
   const body = collectConfig();
   const resp = await fetch('/admin/api/config', {
     method: 'PUT',
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
   });

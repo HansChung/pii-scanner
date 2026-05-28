@@ -11,6 +11,9 @@ elif [ -d "/home/site/wwwroot/antenv/bin" ]; then
   source /home/site/wwwroot/antenv/bin/activate
 fi
 
+# 白名單持久化目錄（/home 在 Azure 重部署後仍保留）
+mkdir -p /home/site/whitelist 2>/dev/null || true
+
 PORT="${PORT:-8000}"
 # B1 記憶體有限，固定 1 worker；若升級至 S1+ 可設 WEB_CONCURRENCY=2
 WORKERS="${WEB_CONCURRENCY:-1}"

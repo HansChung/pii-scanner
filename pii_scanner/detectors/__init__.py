@@ -60,6 +60,10 @@ def get_active_detectors(*, include_surname: bool | None = None) -> List[BaseDet
 
 ALL_DETECTORS: List[BaseDetector] = get_active_detectors()
 
+ALL_DETECTOR_NAMES: List[str] = sorted(
+    {d.name for d in _CORE_DETECTORS} | {d.name for d in _OPTIONAL_DETECTORS}
+)
+
 
 def _dedupe_findings(findings: List[Finding]) -> List[Finding]:
     """合併同一位置、同類別的重複命中（如 chinese_name 與 surname_name）。"""
