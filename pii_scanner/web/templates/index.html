@@ -78,6 +78,13 @@
   .notice-box ul { margin: 8px 0 0; padding-left: 1.2em; font-size: 14px; line-height: 1.65; }
   .notice-box li { margin: 4px 0; }
   .file-hint { font-size: 13px; color: #5b607a; margin: 4px 0 10px; line-height: 1.6; }
+  .ai-option {
+    background: #f0f4ff; border: 1px solid #c5d0f5; border-radius: 10px;
+    padding: 12px 16px; margin: 16px 0 0;
+  }
+  .ai-option label { font-size: 14px; cursor: pointer; }
+  .ai-option input { margin-right: 8px; }
+  .ai-option .hint { font-size: 12px; color: #5b607a; margin: 6px 0 0 24px; line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -103,6 +110,11 @@
     <button class="tab" data-tab="file">檔案</button>
     <button class="tab" data-tab="url">單一網址</button>
     <button class="tab" data-tab="site">整個網站</button>
+  </div>
+
+  <div class="ai-option" id="ai-box" style="display:none">
+    <label><input type="checkbox" id="use-ai"> <strong>Azure AI 增強分析</strong>（選用，可能產生 Azure 費用）</label>
+    <p class="hint" id="ai-hint">勾選後會額外呼叫 Azure AI Language PII API，加強姓名等語意偵測。預設關閉以控制預算；單次最多分析 <span id="ai-max-chars">5000</span> 字。</p>
   </div>
 
   <section class="panel" data-panel="text">
@@ -154,6 +166,28 @@ tabs.forEach(t => t.addEventListener('click', () => {
 
 const errEl = document.getElementById('error');
 const resEl = document.getElementById('results');
+let scanConfig = { ai_available: false, ai_allow_site_scan: false };
+
+async function loadScanConfig() {
+  try {
+    const r = await fetch('/api/config');
+    scanConfig = await r.json();
+    if (scanConfig.ai_available) {
+      document.getElementById('ai-box').style.display = 'block';
+      document.getElementById('ai-max-chars').textContent = scanConfig.ai_max_chars || 5000;
+    }
+  } catch (_) {}
+}
+loadScanConfig();
+
+function aiChecked() {
+  const el = document.getElementById('use-ai');
+  return el && el.checked;
+}
+
+function appendAi(fd) {
+  fd.append('use_ai', aiChecked() ? 'true' : 'false');
+}
 
 function showError(msg) {
   errEl.style.display = 'block';
@@ -175,8 +209,15 @@ function renderResults(data) {
   let html = `<div class="summary">
     <div><strong>命中數：</strong>${s.total}</div>
     <div style="margin-top:6px">${severityPills || '<em>無命中</em>'}</div>
-    <div style="margin-top:6px;color:#555">類別：${categories}</div>
-  </div>`;
+    <div style="margin-top:6px;color:#555">類別：${categories}</div>`;
+  if (data.meta) {
+    if (data.meta.ai_used) {
+      html += `<div style="margin-top:8px;color:#1d3d8a;font-size:13px">🤖 已使用 Azure AI 增強（分析 ${data.meta.ai_chars_analyzed} 字）</div>`;
+    } else if (data.meta.ai_requested && data.meta.ai_warning) {
+      html += `<div style="margin-top:8px;color:#aa4400;font-size:13px">AI：${escapeHtml(data.meta.ai_warning)}</div>`;
+    }
+  }
+  html += `</div>`;
   if (!data.findings || !data.findings.length) {
     html += '<div class="empty">沒有偵測到個資。</div>';
   } else {
@@ -228,6 +269,7 @@ async function postForm(path, formData, btn) {
 document.getElementById('btn-text').addEventListener('click', e => {
   const fd = new FormData();
   fd.append('text', document.getElementById('text').value);
+  appendAi(fd);
   postForm('/api/scan/text', fd, e.target);
 });
 
@@ -236,12 +278,14 @@ document.getElementById('btn-file').addEventListener('click', e => {
   if (!f) { showError('請先選擇檔案'); return; }
   const fd = new FormData();
   fd.append('file', f);
+  appendAi(fd);
   postForm('/api/scan/file', fd, e.target);
 });
 
 document.getElementById('btn-url').addEventListener('click', e => {
   const fd = new FormData();
   fd.append('url', document.getElementById('url').value);
+  appendAi(fd);
   postForm('/api/scan/url', fd, e.target);
 });
 
@@ -250,6 +294,7 @@ document.getElementById('btn-site').addEventListener('click', e => {
   fd.append('url', document.getElementById('site-url').value);
   fd.append('max_pages', document.getElementById('max-pages').value);
   fd.append('max_depth', document.getElementById('max-depth').value);
+  appendAi(fd);
   postForm('/api/scan/site', fd, e.target);
 });
 </script>

@@ -208,6 +208,19 @@ az webapp config set -g $RESOURCE_GROUP -n $WEBAPP --always-on true
 | `PII_ADMIN_PASSWORD` | （自行設定） | 啟用 `/admin` 管理白名單 |
 | `PII_WHITELIST_PATH` | `/home/site/whitelist/config.json` | 白名單儲存路徑（Azure 建議） |
 
+### Azure AI 增強分析（選用，勾選才計費）
+
+可在掃描頁勾選 **「Azure AI 增強分析」**，額外呼叫 [Azure AI Language PII](https://learn.microsoft.com/azure/ai-services/language-service/personally-identifiable-information) 加強姓名等語意偵測。**預設關閉**，只有勾選時才會產生 API 費用。
+
+| 名稱 | 值 | 說明 |
+| --- | --- | --- |
+| `AZURE_LANGUAGE_ENDPOINT` | `https://<資源>.cognitiveservices.azure.com/` | Language 服務端點 |
+| `AZURE_LANGUAGE_KEY` | （金鑰） | 與端點配對的 Key |
+| `PII_AI_MAX_CHARS` | `5000` | 單次 AI 分析字元上限（控管費用） |
+| `PII_AI_ALLOW_SITE_SCAN` | `false` | 整站爬取是否允許 AI（預設否，避免多頁費用） |
+
+未設定端點與金鑰時，勾選框不會顯示；設定後重新整理首頁即可使用。
+
 升級至 S1 後可將 `WEB_CONCURRENCY` 改為 `2`、`PII_MAX_SITE_PAGES` 改為 `20`。
 
 ### 3. 部署方式

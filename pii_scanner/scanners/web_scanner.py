@@ -69,6 +69,26 @@ def _allowed_by_robots(url: str, user_agent: str, cache: dict) -> bool:
     return rp.can_fetch(user_agent, url)
 
 
+def fetch_url_text(
+    url: str,
+    *,
+    timeout: float = 10.0,
+    headers: Optional[dict] = None,
+    verify_tls: bool = True,
+) -> str:
+    """抓取 URL 並回傳純文字（供 AI 增強）。"""
+    _check_runtime()
+    h = dict(DEFAULT_HEADERS)
+    if headers:
+        h.update(headers)
+    resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
+    resp.raise_for_status()
+    content_type = resp.headers.get("Content-Type", "")
+    if "html" in content_type or "xml" in content_type:
+        return _html_to_text(resp.text)
+    return resp.text
+
+
 def scan_url(
     url: str,
     *,

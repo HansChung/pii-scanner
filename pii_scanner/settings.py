@@ -49,3 +49,13 @@ _default_whitelist = (
     else Path(__file__).resolve().parent.parent / "data" / "whitelist.json"
 )
 WHITELIST_PATH = Path(os.getenv("PII_WHITELIST_PATH", str(_default_whitelist)))
+
+# --- Azure AI Language（可選 PII 增強；僅在使用者勾選時呼叫）---
+AZURE_LANGUAGE_ENDPOINT = os.getenv("AZURE_LANGUAGE_ENDPOINT", os.getenv("LANGUAGE_ENDPOINT", "")).strip().rstrip("/")
+AZURE_LANGUAGE_KEY = os.getenv("AZURE_LANGUAGE_KEY", os.getenv("LANGUAGE_KEY", "")).strip()
+
+# 單次 AI 分析字元上限（控制費用；Language 約按 1,000 字元計價）
+AI_MAX_CHARS = _int_env("PII_AI_MAX_CHARS", 5000)
+
+# 是否允許「整站爬取」掃描使用 AI（預設關閉，避免多頁費用暴增）
+AI_ALLOW_SITE_SCAN = _bool_env("PII_AI_ALLOW_SITE_SCAN", False)

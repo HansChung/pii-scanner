@@ -10,17 +10,28 @@ from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, UploadFil
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
+from ..ai.enhance import ScanMeta, maybe_enhance_with_ai
+from ..ai.azure_language import is_ai_configured
+from ..ai.text_source import text_from_upload
 from ..detectors import get_active_detectors
 from ..detectors.base import Finding
 from ..report import findings_to_dict, render_html
 from ..scanners.document_reader import DocumentReadError
 from ..scanners.file_scanner import scan_bytes
 from ..scanners.text_scanner import scan_text
-from ..scanners.web_scanner import scan_site, scan_url
-from ..settings import ADMIN_PASSWORD, HTTP_TIMEOUT, MAX_SITE_DEPTH, MAX_SITE_PAGES, MAX_UPLOAD_BYTES
+from ..scanners.web_scanner import fetch_url_text, scan_site, scan_url
+from ..settings import (
+    ADMIN_PASSWORD,
+    AI_ALLOW_SITE_SCAN,
+    AI_MAX_CHARS,
+    HTTP_TIMEOUT,
+    MAX_SITE_DEPTH,
+    MAX_SITE_PAGES,
+    MAX_UPLOAD_BYTES,
+)
 from ..whitelist import WhitelistConfig, apply_whitelist, list_known_detectors, load_whitelist, save_whitelist
 
-app = FastAPI(title="PII Scanner", version="0.2.1", description="自動個資掃描 API")
+app = FastAPI(title="PII Scanner", version="0.3.0", description="自動個資掃描 API")
 security = HTTPBasic(auto_error=False)
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -32,8 +43,24 @@ def _finalize(findings: List[Finding]) -> List[Finding]:
     return apply_whitelist(findings)
 
 
-def _respond(findings: List[Finding]) -> JSONResponse:
-    return JSONResponse(findings_to_dict(_finalize(findings)))
+def _respond(findings: List[Finding], meta: Optional[ScanMeta] = None) -> JSONResponse:
+    finalized = _finalize(findings)
+    return JSONResponse(findings_to_dict(finalized, meta=meta.to_dict() if meta else None))
+
+
+def _parse_use_ai(raw: str = Form("false")) -> bool:
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+@app.get("/api/config")
+def api_config() -> JSONResponse:
+    return JSONResponse(
+        {
+            "ai_available": is_ai_configured(),
+            "ai_max_chars": AI_MAX_CHARS,
+            "ai_allow_site_scan": AI_ALLOW_SITE_SCAN,
+        }
+    )
 
 
 def _require_admin(credentials: Optional[HTTPBasicCredentials] = Depends(security)) -> str:
@@ -57,15 +84,26 @@ def index() -> HTMLResponse:
 
 
 @app.post("/api/scan/text")
-async def api_scan_text(text: str = Form(...)) -> JSONResponse:
-    findings = await asyncio.to_thread(
-        scan_text, text, source="api:text", detectors=get_active_detectors()
-    )
-    return _respond(findings)
+async def api_scan_text(
+    text: str = Form(...),
+    use_ai: str = Form("false"),
+) -> JSONResponse:
+    ai = _parse_use_ai(use_ai)
+
+    def _run() -> tuple[List[Finding], ScanMeta]:
+        findings = scan_text(text, source="api:text", detectors=get_active_detectors())
+        return maybe_enhance_with_ai(text, findings, source="api:text", use_ai=ai)
+
+    findings, meta = await asyncio.to_thread(_run)
+    return _respond(findings, meta)
 
 
 @app.post("/api/scan/file")
-async def api_scan_file(file: UploadFile = File(...)) -> JSONResponse:
+async def api_scan_file(
+    file: UploadFile = File(...),
+    use_ai: str = Form("false"),
+) -> JSONResponse:
+    ai = _parse_use_ai(use_ai)
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
         mb = MAX_UPLOAD_BYTES // (1024 * 1024)
@@ -73,25 +111,37 @@ async def api_scan_file(file: UploadFile = File(...)) -> JSONResponse:
 
     filename = file.filename or "upload"
 
-    def _run() -> List[Finding]:
-        return scan_bytes(raw, filename, detectors=get_active_detectors())
+    def _run() -> tuple[List[Finding], ScanMeta]:
+        findings = scan_bytes(raw, filename, detectors=get_active_detectors())
+        text = text_from_upload(raw, filename) if ai else ""
+        return maybe_enhance_with_ai(
+            text, findings, source=filename, use_ai=ai and bool(text.strip())
+        )
 
     try:
-        findings = await asyncio.to_thread(_run)
+        findings, meta = await asyncio.to_thread(_run)
     except DocumentReadError as exc:
         raise HTTPException(status_code=415, detail=str(exc))
-    return _respond(findings)
+    return _respond(findings, meta)
 
 
 @app.post("/api/scan/url")
-async def api_scan_url(url: str = Form(...)) -> JSONResponse:
+async def api_scan_url(
+    url: str = Form(...),
+    use_ai: str = Form("false"),
+) -> JSONResponse:
+    ai = _parse_use_ai(use_ai)
+
+    def _run() -> tuple[List[Finding], ScanMeta]:
+        findings = scan_url(url, timeout=HTTP_TIMEOUT, detectors=get_active_detectors())
+        text = fetch_url_text(url, timeout=HTTP_TIMEOUT) if ai else ""
+        return maybe_enhance_with_ai(text, findings, source=url, use_ai=ai and bool(text.strip()))
+
     try:
-        findings = await asyncio.to_thread(
-            scan_url, url, timeout=HTTP_TIMEOUT, detectors=get_active_detectors()
-        )
+        findings, meta = await asyncio.to_thread(_run)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"抓取 URL 失敗：{exc}")
-    return _respond(findings)
+    return _respond(findings, meta)
 
 
 @app.post("/api/scan/site")
@@ -99,21 +149,33 @@ async def api_scan_site(
     url: str = Form(...),
     max_pages: int = Form(10),
     max_depth: int = Form(1),
+    use_ai: str = Form("false"),
 ) -> JSONResponse:
+    ai = _parse_use_ai(use_ai)
     pages = min(max(1, max_pages), MAX_SITE_PAGES)
     depth = min(max(0, max_depth), MAX_SITE_DEPTH)
-    try:
-        findings = await asyncio.to_thread(
-            scan_site,
+
+    def _run() -> tuple[List[Finding], ScanMeta]:
+        findings = scan_site(
             url,
             max_pages=pages,
             max_depth=depth,
             timeout=HTTP_TIMEOUT,
             detectors=get_active_detectors(),
         )
+        meta = ScanMeta(ai_requested=ai)
+        if ai and not AI_ALLOW_SITE_SCAN:
+            meta.ai_warning = (
+                "整站爬取預設不使用 Azure AI（避免多頁費用過高）。"
+                "若需啟用請設定 PII_AI_ALLOW_SITE_SCAN=true。"
+            )
+        return findings, meta
+
+    try:
+        findings, meta = await asyncio.to_thread(_run)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"爬取網站失敗：{exc}")
-    return _respond(findings)
+    return _respond(findings, meta)
 
 
 @app.post("/api/scan/text/html", response_class=HTMLResponse)

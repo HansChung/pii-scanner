@@ -43,15 +43,18 @@ def summarize(findings: Iterable[Finding]) -> dict:
     }
 
 
-def findings_to_dict(findings: Iterable[Finding]) -> dict:
+def findings_to_dict(findings: Iterable[Finding], meta: dict | None = None) -> dict:
     findings = sorted(
         findings,
         key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 9), f.source or "", f.start),
     )
-    return {
+    out = {
         "summary": summarize(findings),
         "findings": [f.to_dict() for f in findings],
     }
+    if meta:
+        out["meta"] = meta
+    return out
 
 
 def render_json(findings: Iterable[Finding], indent: int = 2) -> str:
