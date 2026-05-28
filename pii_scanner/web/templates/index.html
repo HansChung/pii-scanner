@@ -65,9 +65,31 @@
   td.context { color: #555; font-size: 12px; max-width: 360px; word-break: break-all; }
   .empty { padding: 24px; color: #6a708a; text-align: center; }
   .error { background: #fde2e2; color: #800; padding: 12px 16px; border-radius: 8px; margin-top: 12px; }
+  .notice {
+    max-width: 1100px; margin: 0 auto; padding: 16px 24px 0;
+  }
+  .notice-box {
+    background: #fff8e6; border: 1px solid #f0c96e; border-left: 4px solid #d48806;
+    border-radius: 10px; padding: 14px 18px; color: #5c4a1f;
+    box-shadow: 0 2px 8px rgba(180,120,0,.08);
+  }
+  .notice-box strong { display: block; font-size: 15px; color: #874d00; margin-bottom: 6px; }
+  .notice-box p { margin: 0; font-size: 14px; line-height: 1.65; }
+  .notice-box ul { margin: 8px 0 0; padding-left: 1.2em; font-size: 14px; line-height: 1.65; }
+  .notice-box li { margin: 4px 0; }
 </style>
 </head>
 <body>
+<div class="notice">
+  <div class="notice-box" role="alert">
+    <strong>使用須知</strong>
+    <p>本系統僅作為個資<strong>協同檢查</strong>之輔助工具，掃描結果<strong>無法保證 100% 偵測</strong>所有疑似個資，仍可能存在漏判或誤判，不可僅憑系統結果即認定資料合規或無虞。</p>
+    <ul>
+      <li>資料正式<strong>上傳、發布或對外提供前</strong>，務必由<strong>至少兩人覆核</strong>（雙人覆驗）確認內容。</li>
+      <li><strong>資訊處</strong>僅提供本系統之檢測服務；最終是否涉及個資、是否可對外使用，以及相關<strong>法遵責任，仍由資料提供單位及經辦人員自行負責</strong>。</li>
+    </ul>
+  </div>
+</div>
 <header>
   <h1>個資 (PII) 自動掃描器</h1>
   <p>支援台灣身分證、手機、信用卡、Email、統編、車牌、IP、護照、健保卡號等格式</p>
