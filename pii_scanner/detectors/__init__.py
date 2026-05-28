@@ -48,10 +48,26 @@ _OPTIONAL_DETECTORS: List[BaseDetector] = [
 
 
 def get_active_detectors(*, include_surname: bool | None = None) -> List[BaseDetector]:
-    """回傳目前應啟用的偵測器清單。"""
-    from ..settings import ENABLE_SURNAME_NAME
+    """回傳目前應啟用的偵測器清單。
 
-    use_surname = ENABLE_SURNAME_NAME if include_surname is None else include_surname
+    ``surname_name`` 啟用條件（任一即可，且白名單「停用」優先）：
+    - 管理介面 / 白名單未勾選停用 ``surname_name``
+    - 或環境變數 ``PII_ENABLE_SURNAME_NAME=true``
+    """
+    from ..settings import ENABLE_SURNAME_NAME
+    from ..whitelist import load_whitelist
+
+    if include_surname is not None:
+        use_surname = include_surname
+    else:
+        cfg = load_whitelist()
+        if "surname_name" in cfg.global_disabled_detectors:
+            use_surname = False
+        else:
+            use_surname = True
+        if ENABLE_SURNAME_NAME and "surname_name" not in cfg.global_disabled_detectors:
+            use_surname = True
+
     dets = list(_CORE_DETECTORS)
     if use_surname:
         dets.extend(_OPTIONAL_DETECTORS)

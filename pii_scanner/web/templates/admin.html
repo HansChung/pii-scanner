@@ -41,7 +41,7 @@
 
   <section>
     <h2>全域設定</h2>
-    <p class="hint">停用的偵測器在所有掃描中都不會回報。建議保持停用「百家姓全文 (surname_name)」，除非有特殊需求。</p>
+    <p class="hint">勾選＝<strong>停用</strong>該偵測器（不會出現在掃描結果）。若要啟用「百家姓全文」，請<strong>取消勾選</strong> <code>surname_name</code>。網站掃描仍會略過頁尾依法公開之承辦人姓名。</p>
     <label>停用的偵測器</label>
     <div id="global-detectors" class="det-grid"></div>
     <label>全域忽略詞（每行一個，命中值或上下文包含即略過）</label>
@@ -110,7 +110,7 @@ function renderGlobalDetectors() {
   box.innerHTML = detectors.map(name => {
     const label = DETECTOR_LABELS[name] || name;
     const checked = disabled.has(name) ? 'checked' : '';
-    return `<label><input type="checkbox" data-global-det="${name}" ${checked}> ${label}</label>`;
+    return `<label title="勾選表示停用"><input type="checkbox" data-global-det="${name}" ${checked}> 停用 ${label}</label>`;
   }).join('');
 }
 
