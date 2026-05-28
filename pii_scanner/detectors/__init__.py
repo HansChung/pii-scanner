@@ -21,7 +21,6 @@ from .bank_account import BankAccountDetector
 from .date_of_birth import DateOfBirthDetector
 from .address import TaiwanAddressDetector
 from .name import ChineseNameDetector
-from .context_name import ContextNameDetector
 from .surname_name import SurnameNameDetector, SurnameMatchMode, find_surname_names
 
 _CORE_DETECTORS: List[BaseDetector] = [
@@ -41,7 +40,6 @@ _CORE_DETECTORS: List[BaseDetector] = [
     DateOfBirthDetector(),
     TaiwanAddressDetector(),
     ChineseNameDetector(),  # 關鍵字版姓名（姓名：XXX）
-    ContextNameDetector(),  # 頁尾/維護/單位 + 姓名（秘書處 江雅玲）
 ]
 
 _OPTIONAL_DETECTORS: List[BaseDetector] = [
@@ -100,6 +98,11 @@ def detect_in_text(
                 f.source = source
             findings.append(f)
     findings = _dedupe_findings(findings)
+    from ..filters import exclude_public_disclosure_names
+    from ..settings import EXCLUDE_PUBLIC_DISCLOSURE
+
+    if EXCLUDE_PUBLIC_DISCLOSURE:
+        findings = exclude_public_disclosure_names(text, findings)
     return findings
 
 

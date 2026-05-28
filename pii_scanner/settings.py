@@ -32,6 +32,9 @@ HTTP_TIMEOUT = float(os.getenv("PII_HTTP_TIMEOUT", "15"))
 # 百家姓全文掃描預設關閉（網站掃描誤判率高）；設 PII_ENABLE_SURNAME_NAME=true 才啟用
 ENABLE_SURNAME_NAME = _bool_env("PII_ENABLE_SURNAME_NAME", False)
 
+# 頁尾維護/承辦人等依法公開姓名不列入個資；設 PII_EXCLUDE_PUBLIC_DISCLOSURE=false 可關閉
+EXCLUDE_PUBLIC_DISCLOSURE = _bool_env("PII_EXCLUDE_PUBLIC_DISCLOSURE", True)
+
 # 管理介面密碼；未設定則 /admin 不可用
 ADMIN_PASSWORD = os.getenv("PII_ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "")).strip()
 
