@@ -140,6 +140,7 @@ def admin_get_config(_: str = Depends(_require_admin)) -> JSONResponse:
 
 
 @app.put("/admin/api/config")
+@app.post("/admin/api/config")
 async def admin_put_config(
     payload: dict = Body(...),
     _: str = Depends(_require_admin),

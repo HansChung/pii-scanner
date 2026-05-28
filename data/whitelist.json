@@ -1,8 +1,20 @@
 {
   "version": 1,
   "global_disabled_detectors": [
-    "surname_name"
+    "surname_name",
+    "email"
   ],
-  "ignore_words": [],
-  "domain_rules": []
+  "ignore_words": [
+    "president@mail.tku.edu.tw",
+    "淡江大學"
+  ],
+  "domain_rules": [
+    {
+      "domain": "tku.edu.tw",
+      "disabled_detectors": [
+        "taiwan_address"
+      ],
+      "ignore_words": []
+    }
+  ]
 }

@@ -22,6 +22,7 @@
   .domain-card h3{margin:0 0 8px;font-size:14px;}
   button{padding:10px 18px;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px;}
   button.primary{background:#2a3da7;color:#fff;}
+  button.primary:disabled{opacity:.55;cursor:not-allowed;}
   button.secondary{background:#eef0fa;color:#2a3da7;}
   button.danger{background:#fde2e2;color:#a40000;}
   .toolbar{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;}
@@ -82,18 +83,30 @@ const DETECTOR_LABELS = {
   taiwan_resident_cert: '居留證',
 };
 
-let detectors = [];
-let config = null;
+const DEFAULT_DETECTORS = Object.keys(DETECTOR_LABELS);
+
+function emptyConfig() {
+  return {
+    version: 1,
+    global_disabled_detectors: ['surname_name'],
+    ignore_words: [],
+    domain_rules: [],
+  };
+}
+
+let detectors = [...DEFAULT_DETECTORS];
+let config = emptyConfig();
 
 function showMsg(text, ok=true) {
   const el = document.getElementById('msg');
   el.textContent = text;
   el.className = 'msg ' + (ok ? 'ok' : 'err');
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function renderGlobalDetectors() {
   const box = document.getElementById('global-detectors');
-  const disabled = new Set(config.global_disabled_detectors || []);
+  const disabled = new Set((config && config.global_disabled_detectors) || []);
   box.innerHTML = detectors.map(name => {
     const label = DETECTOR_LABELS[name] || name;
     const checked = disabled.has(name) ? 'checked' : '';
@@ -104,10 +117,10 @@ function renderGlobalDetectors() {
 function renderDomainRules() {
   const box = document.getElementById('domain-rules');
   box.innerHTML = '';
-  (config.domain_rules || []).forEach((rule, idx) => {
+  const rules = (config && config.domain_rules) || [];
+  rules.forEach((rule, idx) => {
     const div = document.createElement('div');
     div.className = 'domain-card';
-    div.dataset.idx = idx;
     const detChecks = detectors.map(name => {
       const on = (rule.disabled_detectors || []).includes(name);
       const label = DETECTOR_LABELS[name] || name;
@@ -132,19 +145,20 @@ function escapeHtml(s) {
 }
 
 function collectConfig() {
+  const rules = (config && config.domain_rules) || [];
   const globalDisabled = [...document.querySelectorAll('[data-global-det]')]
     .filter(el => el.checked).map(el => el.dataset.globalDet);
   const ignoreWords = document.getElementById('ignore-words').value
     .split('\n').map(s => s.trim()).filter(Boolean);
-  const domainRules = (config.domain_rules || []).map((rule, idx) => {
+  const domainRules = rules.map((rule, idx) => {
     const domainEl = document.querySelector(`input[data-field="domain"][data-idx="${idx}"]`);
     const wordsEl = document.querySelector(`textarea[data-field="ignore_words"][data-idx="${idx}"]`);
     const disabled = [...document.querySelectorAll(`input[data-idx="${idx}"][data-det]`)]
       .filter(el => el.checked).map(el => el.dataset.det);
     return {
-      domain: (domainEl?.value || '').trim(),
+      domain: (domainEl && domainEl.value || '').trim(),
       disabled_detectors: disabled,
-      ignore_words: (wordsEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean),
+      ignore_words: (wordsEl && wordsEl.value || '').split('\n').map(s => s.trim()).filter(Boolean),
     };
   }).filter(r => r.domain);
   return {
@@ -156,42 +170,67 @@ function collectConfig() {
 }
 
 async function loadConfig() {
-  const resp = await fetch('/admin/api/config', { credentials: 'same-origin' });
-  if (!resp.ok) {
-    let detail = '';
-    try { detail = (await resp.json()).detail || ''; } catch (_) {}
-    showMsg('載入失敗：' + resp.status + (detail ? ' — ' + detail : ''), false);
-    return;
+  showMsg('載入中…', true);
+  try {
+    const resp = await fetch('/admin/api/config', { credentials: 'same-origin' });
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.json()).detail || ''; } catch (_) {}
+      showMsg('載入失敗：' + resp.status + (detail ? ' — ' + detail : '') + '（仍可編輯後按儲存）', false);
+      renderGlobalDetectors();
+      renderDomainRules();
+      return;
+    }
+    const data = await resp.json();
+    detectors = data.detectors && data.detectors.length ? data.detectors : DEFAULT_DETECTORS;
+    config = data.config || emptyConfig();
+    document.getElementById('ignore-words').value = (config.ignore_words || []).join('\n');
+    renderGlobalDetectors();
+    renderDomainRules();
+    showMsg('白名單已載入');
+  } catch (e) {
+    showMsg('載入錯誤：' + (e.message || e) + '（仍可編輯後按儲存）', false);
+    renderGlobalDetectors();
+    renderDomainRules();
   }
-  const data = await resp.json();
-  detectors = data.detectors || [];
-  config = data.config || {};
-  document.getElementById('ignore-words').value = (config.ignore_words || []).join('\n');
-  renderGlobalDetectors();
-  renderDomainRules();
-  showMsg('白名單已載入');
 }
 
-document.getElementById('btn-save').addEventListener('click', async () => {
-  const body = collectConfig();
-  const resp = await fetch('/admin/api/config', {
-    method: 'PUT',
-    credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    showMsg(err.detail || '儲存失敗', false);
-    return;
+async function saveConfig() {
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = '儲存中…';
+  showMsg('儲存中…', true);
+  try {
+    const body = collectConfig();
+    const resp = await fetch('/admin/api/config', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    let payload = {};
+    try { payload = await resp.json(); } catch (_) {}
+    if (!resp.ok) {
+      const detail = payload.detail || payload.message || ('HTTP ' + resp.status);
+      showMsg('儲存失敗：' + detail, false);
+      return;
+    }
+    config = body;
+    showMsg('✓ 白名單已儲存成功');
+  } catch (e) {
+    showMsg('儲存錯誤：' + (e.message || e), false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
   }
-  config = body;
-  showMsg('白名單已儲存');
-});
+}
 
+document.getElementById('btn-save').addEventListener('click', saveConfig);
 document.getElementById('btn-reload').addEventListener('click', loadConfig);
 
 document.getElementById('btn-add-domain').addEventListener('click', () => {
+  if (!config) config = emptyConfig();
   config.domain_rules = config.domain_rules || [];
   config.domain_rules.push({domain:'', disabled_detectors:[], ignore_words:[]});
   renderDomainRules();
@@ -199,12 +238,13 @@ document.getElementById('btn-add-domain').addEventListener('click', () => {
 
 document.getElementById('domain-rules').addEventListener('click', e => {
   const rm = e.target.dataset.remove;
-  if (rm !== undefined) {
+  if (rm !== undefined && config) {
     config.domain_rules.splice(Number(rm), 1);
     renderDomainRules();
   }
 });
 
+renderGlobalDetectors();
 loadConfig();
 </script>
 </body></html>
