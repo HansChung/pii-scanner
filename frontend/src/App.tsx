@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, KeyRound, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, KeyRound, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud, UserRound } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -85,6 +85,7 @@ type AzureAiForm = {
 };
 
 type AzureAiService = 'documentIntelligence' | 'language' | 'openAi';
+type RoleView = 'user' | 'admin';
 
 type AzureAiTestResult = {
   tone: 'ok' | 'error';
@@ -178,6 +179,7 @@ function App() {
   const [azureForm, setAzureForm] = useState<AzureAiForm | null>(null);
   const [testingAzureService, setTestingAzureService] = useState<AzureAiService | null>(null);
   const [azureTestResults, setAzureTestResults] = useState<Partial<Record<AzureAiService, AzureAiTestResult>>>({});
+  const [roleView, setRoleView] = useState<RoleView>('user');
 
   useEffect(() => {
     api.me()
@@ -349,28 +351,49 @@ function App() {
           </div>
         </div>
         <nav>
-          <a className="active"><FileSearch size={18} /> 查驗工作台</a>
-          <a><Settings size={18} /> 系統限制</a>
-          {auth.isAdmin && <a><KeyRound size={18} /> Azure AI 金鑰</a>}
+          <button className={roleView === 'user' ? 'active' : ''} onClick={() => setRoleView('user')}>
+            <FileSearch size={18} /> 查驗工作台
+          </button>
+          {auth.isAdmin && (
+            <button className={roleView === 'admin' ? 'active' : ''} onClick={() => setRoleView('admin')}>
+              <ShieldCheck size={18} /> 管理後台
+            </button>
+          )}
         </nav>
       </aside>
 
       <section className="content">
         <header className="topbar">
           <div>
-            <h2>檔案查驗工作台</h2>
-            <p>原始檔只暫存處理，完成後只保留遮罩後結果與審核紀錄。</p>
+            <h2>{roleView === 'admin' ? '系統管理後台' : '檔案查驗工作台'}</h2>
+            <p>
+              {roleView === 'admin'
+                ? '調整上傳限制與 Azure AI 服務連線設定。'
+                : '原始檔只暫存處理，完成後只保留遮罩後結果與審核紀錄。'}
+            </p>
           </div>
           <div className="user-actions">
             <span>{auth.user?.name || auth.user?.email || '本機模式'}</span>
-            <a className="report-link" href={jobId ? `/api/jobs/${jobId}/report` : '#'}>下載報告 JSON</a>
+            {auth.isAdmin && (
+              <div className="role-switch" aria-label="檢視角色">
+                <button className={roleView === 'user' ? 'active' : ''} onClick={() => setRoleView('user')}>
+                  <UserRound size={16} /> 一般使用者
+                </button>
+                <button className={roleView === 'admin' ? 'active' : ''} onClick={() => setRoleView('admin')}>
+                  <ShieldCheck size={16} /> 管理者
+                </button>
+              </div>
+            )}
+            {roleView === 'user' && (
+              <a className="report-link" href={jobId ? `/api/jobs/${jobId}/report` : '#'}>下載報告 JSON</a>
+            )}
             {auth.authRequired && <a className="icon-link" href="/auth/logout"><LogOut size={18} />登出</a>}
           </div>
         </header>
 
         {error && <div className="notice">{error}</div>}
 
-        <section className="grid">
+        {roleView === 'user' && <section className="grid user-workspace-grid">
           <div className="panel upload-panel">
             <div className="panel-title">
               <UploadCloud size={22} />
@@ -437,6 +460,9 @@ function App() {
             )}
           </div>
 
+        </section>}
+
+        {roleView === 'admin' && auth.isAdmin && <section className="admin-workspace">
           <div className="panel settings-panel">
             <div className="panel-title">
               <Settings size={22} />
@@ -462,9 +488,9 @@ function App() {
             </label>
             <button onClick={saveLimit}><CheckCircle2 size={18} /> 保存限制</button>
           </div>
-        </section>
+        </section>}
 
-        {auth.isAdmin && azureForm && (
+        {roleView === 'admin' && auth.isAdmin && azureForm && (
           <section className="panel admin-panel">
             <div className="panel-title">
               <KeyRound size={22} />
@@ -533,7 +559,7 @@ function App() {
           </section>
         )}
 
-        <section className="panel findings-panel">
+        {roleView === 'user' && <section className="panel findings-panel">
           <div className="panel-title">
             <AlertTriangle size={22} />
             <h3>風險發現</h3>
@@ -562,7 +588,7 @@ function App() {
             <button onClick={() => submitReview('false_positive')}>誤判</button>
             <button onClick={() => submitReview('approved_after_redaction')}>遮罩後通過</button>
           </div>
-        </section>
+        </section>}
       </section>
     </main>
   );

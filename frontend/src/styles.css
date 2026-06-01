@@ -102,16 +102,22 @@ nav {
   gap: 8px;
 }
 
-nav a {
+nav button {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 12px;
   border-radius: 8px;
   color: #f3d9db;
+  background: transparent;
+  width: 100%;
 }
 
-nav a.active {
+nav button:hover {
+  background: rgba(255, 255, 255, .08);
+}
+
+nav button.active {
   background: var(--tku-red);
   color: #fff;
   box-shadow: inset 4px 0 0 var(--tku-yellow);
@@ -149,6 +155,30 @@ nav a.active {
 .user-actions span {
   color: var(--muted);
   font-size: 14px;
+}
+
+.role-switch {
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #eeeeee;
+}
+
+.role-switch button {
+  background: transparent;
+  color: var(--muted);
+  padding: 7px 9px;
+}
+
+.role-switch button:hover {
+  background: #ffffff;
+}
+
+.role-switch button.active {
+  background: var(--surface);
+  color: var(--tku-red-dark);
+  box-shadow: 0 1px 4px rgba(27, 27, 27, .12);
 }
 
 .topbar h2 {
@@ -213,6 +243,14 @@ button:disabled {
   grid-template-columns: minmax(300px, 1.15fr) minmax(320px, 1fr) 260px;
   gap: 16px;
   align-items: start;
+}
+
+.user-workspace-grid {
+  grid-template-columns: minmax(300px, 1.15fr) minmax(320px, 1fr);
+}
+
+.admin-workspace {
+  max-width: 420px;
 }
 
 .panel {
