@@ -24,6 +24,17 @@ from .extractors import extract_text
 from .models import Finding
 from .office_images import cleanup_embedded_images, extract_embedded_images
 from .pii_rules import detect_with_rules
+from .usage_control import (
+    SERVICE_LANGUAGE,
+    SERVICE_OCR,
+    SERVICE_OPENAI,
+    UsageLimitExceeded,
+    consume_usage,
+    effective_settings,
+    estimate_language_records,
+    estimate_ocr_pages,
+    estimate_openai_tokens,
+)
 
 executor = ThreadPoolExecutor(max_workers=2)
 
@@ -55,6 +66,9 @@ def _run_with_context(app, job_id: str, upload_records: list[dict[str, str]]) ->
 
 def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
     db = get_db()
+    job = db.execute("SELECT actor FROM scan_jobs WHERE id = ?", (job_id,)).fetchone()
+    actor = job["actor"] if job else "anonymous"
+    settings = effective_settings()
     temp_paths = [Path(record["path"]) for record in upload_records]
     deadline = time.monotonic() + current_app.config["JOB_TIMEOUT_SECONDS"]
     try:
@@ -72,7 +86,11 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
             _update_file(file_id, "processing")
             _update_job(job_id, "processing", base_progress + int(span * 0.05), f"{file_name}：抽取文字")
             chunks = extract_text(path, extension)
-            if extension in {".pdf", ".jpg", ".jpeg", ".png"} and document_intelligence_enabled():
+            if (
+                extension in {".pdf", ".jpg", ".jpeg", ".png"}
+                and settings["documentIntelligenceEnabled"]
+                and document_intelligence_enabled()
+            ):
                 try:
                     _ensure_active(job_id, deadline)
                     _update_job(
@@ -80,6 +98,14 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                         "processing",
                         base_progress + int(span * 0.2),
                         f"{file_name}：等待 Azure AI 文件智慧服務 OCR",
+                    )
+                    consume_usage(
+                        job_id,
+                        actor,
+                        SERVICE_OCR,
+                        estimate_ocr_pages(path, extension),
+                        "page",
+                        {"fileId": file_id, "estimated": True},
                     )
                     ocr_chunks = extract_with_document_intelligence(
                         path,
@@ -92,9 +118,15 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                     chunks.extend(ocr_chunks)
                 except (ScanCancelled, ScanTimedOut):
                     raise
+                except UsageLimitExceeded as exc:
+                    _set_file_error(file_id, str(exc))
                 except Exception as exc:
                     _set_file_error(file_id, f"OCR 失敗：{exc}")
-            if extension in {".docx", ".pptx", ".xlsx"} and document_intelligence_enabled():
+            if (
+                extension in {".docx", ".pptx", ".xlsx"}
+                and settings["documentIntelligenceEnabled"]
+                and document_intelligence_enabled()
+            ):
                 images = extract_embedded_images(
                     path,
                     extension,
@@ -106,6 +138,14 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                         _ensure_active(job_id, deadline)
                         message = f"{file_name}：辨識 Office 內嵌圖片 {image_index}/{len(images)}"
                         _update_job(job_id, "processing", base_progress + int(span * 0.25), message)
+                        consume_usage(
+                            job_id,
+                            actor,
+                            SERVICE_OCR,
+                            1,
+                            "page",
+                            {"fileId": file_id, "embeddedImage": True, "estimated": True},
+                        )
                         for chunk in extract_with_document_intelligence(
                             image.path,
                             heartbeat=lambda: _heartbeat(job_id, deadline, message),
@@ -118,6 +158,8 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                             )
                 except (ScanCancelled, ScanTimedOut):
                     raise
+                except UsageLimitExceeded as exc:
+                    _set_file_error(file_id, str(exc))
                 except Exception as exc:
                     _set_file_error(file_id, f"Office 內嵌圖片 OCR 失敗：{exc}")
                 finally:
@@ -128,11 +170,12 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                 base_progress + int(span * 0.45),
                 f"{file_name}：執行本機個資規則",
             )
+            file_findings_start = len(all_findings)
             for chunk in chunks:
                 _ensure_active(job_id, deadline)
                 all_findings.extend((file_id, finding) for finding in detect_with_rules(chunk.text, chunk.location))
             azure_batches = _text_batches(chunks, 5000)
-            if language_pii_enabled():
+            if settings["languagePiiEnabled"] and language_pii_enabled():
                 for batch_index, batch in enumerate(azure_batches, start=1):
                     try:
                         _ensure_active(job_id, deadline)
@@ -142,15 +185,34 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                             base_progress + int(span * 0.6),
                             f"{file_name}：Azure Language PII {batch_index}/{len(azure_batches)}",
                         )
+                        consume_usage(
+                            job_id,
+                            actor,
+                            SERVICE_LANGUAGE,
+                            estimate_language_records(batch.text),
+                            "text_record",
+                            {"fileId": file_id, "batch": batch_index},
+                        )
                         all_findings.extend(
                             (file_id, finding)
                             for finding in detect_with_azure_language(batch.text, batch.location)
                         )
                     except (ScanCancelled, ScanTimedOut):
                         raise
+                    except UsageLimitExceeded as exc:
+                        _set_file_error(file_id, str(exc))
+                        break
                     except Exception as exc:
                         _set_file_error(file_id, f"Azure Language PII 失敗：{exc}")
-            if azure_openai_enabled() and azure_batches:
+            should_run_openai = (
+                not settings["openAiEscalationOnly"] or len(all_findings) > file_findings_start
+            )
+            if (
+                settings["openAiEnabled"]
+                and azure_openai_enabled()
+                and azure_batches
+                and should_run_openai
+            ):
                 try:
                     _ensure_active(job_id, deadline)
                     _update_job(
@@ -160,12 +222,22 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                         f"{file_name}：等待 Azure OpenAI 語意風險判斷",
                     )
                     openai_text = "\n".join(batch.text for batch in azure_batches)[:6000]
+                    consume_usage(
+                        job_id,
+                        actor,
+                        SERVICE_OPENAI,
+                        estimate_openai_tokens(openai_text),
+                        "token",
+                        {"fileId": file_id, "estimated": True},
+                    )
                     all_findings.extend(
                         (file_id, finding)
                         for finding in detect_school_context_with_openai(openai_text, f"{file_name} 彙整文字")
                     )
                 except (ScanCancelled, ScanTimedOut):
                     raise
+                except UsageLimitExceeded as exc:
+                    _set_file_error(file_id, str(exc))
                 except Exception as exc:
                     _set_file_error(file_id, f"Azure OpenAI 失敗：{exc}")
             _update_file(file_id, "completed")
