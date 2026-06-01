@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -12,7 +13,14 @@ from requests import RequestException
 from .auth import admin_required, auth_configured, current_user, current_user_name, is_admin, login_required
 from .azure_services import test_azure_ai_service
 from .db import get_db, row_to_dict
-from .scanner import cancel_scan, cleanup_stale_uploads, create_file_hash, now_iso, submit_scan
+from .scanner import (
+    cancel_scan,
+    cleanup_stale_uploads,
+    create_file_hash,
+    now_iso,
+    submit_scan,
+    submit_website_scan,
+)
 from .security import mime_matches_extension, normalize_extension, safe_filename, sniff_mime
 from .secret_settings import (
     clear_azure_secret,
@@ -20,6 +28,7 @@ from .secret_settings import (
     update_azure_ai_config,
 )
 from .usage_control import effective_settings, estimate_files, job_usage, quota_check, usage_summary
+from .url_security import UnsafeUrlError, validate_public_url
 
 api = Blueprint("api", __name__)
 
@@ -196,6 +205,69 @@ def estimate_upload():
     estimate = estimate_files(normalized)
     errors.extend(quota_check(current_user_name(), estimate))
     return jsonify({"estimate": estimate, "allowed": not errors, "errors": errors})
+
+
+@api.post("/sites/check")
+@login_required
+def check_website():
+    payload = request.get_json(silent=True) or {}
+    url = str(payload.get("url", "")).strip()
+    mode = str(payload.get("mode", "url"))
+    if mode not in {"url", "site"}:
+        return jsonify({"error": "invalid_mode", "message": "網站掃描模式不正確。"}), 400
+    try:
+        validate_public_url(url)
+    except UnsafeUrlError as exc:
+        return jsonify({"error": "unsafe_url", "message": str(exc)}), 400
+    actor = current_user_name()
+    quota_errors = quota_check(
+        actor,
+        {"ocrPages": 0, "languageRecords": 0, "openAiTokens": 0},
+    )
+    if quota_errors:
+        return jsonify({"error": "quota_exceeded", "message": " ".join(quota_errors)}), 429
+    try:
+        max_pages = min(
+            max(1, int(payload.get("maxPages", 10))),
+            current_app.config["WEBSITE_SCAN_MAX_PAGES"],
+        )
+        max_depth = min(
+            max(0, int(payload.get("maxDepth", 1))),
+            current_app.config["WEBSITE_SCAN_MAX_DEPTH"],
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid_limits", "message": "頁數與深度必須是整數。"}), 400
+    use_sitemap = bool(payload.get("useSitemap", False))
+    job_id = str(uuid.uuid4())
+    file_id = str(uuid.uuid4())
+    created_at = now_iso()
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO scan_jobs
+        (id, actor, status, progress, message, file_count, total_size, created_at, updated_at)
+        VALUES (?, ?, 'queued', 0, '等待網站查驗', 1, 0, ?, ?)
+        """,
+        (job_id, actor, created_at, created_at),
+    )
+    db.execute(
+        """
+        INSERT INTO files
+        (id, job_id, original_name, extension, size, sha256, status, created_at)
+        VALUES (?, ?, ?, '.url', 0, ?, 'queued', ?)
+        """,
+        (file_id, job_id, url, hashlib.sha256(url.encode()).hexdigest(), created_at),
+    )
+    _audit(
+        actor,
+        "website_scan_created",
+        "scan_job",
+        job_id,
+        {"mode": mode, "maxPages": max_pages, "maxDepth": max_depth, "useSitemap": use_sitemap},
+    )
+    db.commit()
+    submit_website_scan(job_id, file_id, url, mode, max_pages, max_depth, use_sitemap)
+    return jsonify({"jobId": job_id, "status": "queued"}), 202
 
 
 @api.get("/jobs/<job_id>")

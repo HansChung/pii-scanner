@@ -24,6 +24,7 @@ from .extractors import extract_text
 from .models import Finding
 from .office_images import cleanup_embedded_images, extract_embedded_images
 from .pii_rules import detect_with_rules
+from .url_security import validate_public_url
 from .usage_control import (
     SERVICE_LANGUAGE,
     SERVICE_OCR,
@@ -59,9 +60,137 @@ def submit_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
     executor.submit(_run_with_context, app, job_id, upload_records)
 
 
+def submit_website_scan(
+    job_id: str,
+    file_id: str,
+    url: str,
+    mode: str,
+    max_pages: int,
+    max_depth: int,
+    use_sitemap: bool,
+) -> None:
+    app = current_app._get_current_object()
+    args = (app, job_id, file_id, url, mode, max_pages, max_depth, use_sitemap)
+    if app.config.get("TESTING"):
+        _run_website_with_context(*args)
+        return
+    executor.submit(_run_website_with_context, *args)
+
+
 def _run_with_context(app, job_id: str, upload_records: list[dict[str, str]]) -> None:
     with app.app_context():
         run_scan(job_id, upload_records)
+
+
+def _run_website_with_context(
+    app,
+    job_id: str,
+    file_id: str,
+    url: str,
+    mode: str,
+    max_pages: int,
+    max_depth: int,
+    use_sitemap: bool,
+) -> None:
+    with app.app_context():
+        run_website_scan(job_id, file_id, url, mode, max_pages, max_depth, use_sitemap)
+
+
+def run_website_scan(
+    job_id: str,
+    file_id: str,
+    url: str,
+    mode: str,
+    max_pages: int,
+    max_depth: int,
+    use_sitemap: bool,
+) -> None:
+    from pii_scanner.scanners.web_scanner import scan_site, scan_url
+
+    db = get_db()
+    try:
+        _update_file(file_id, "processing")
+        _update_job(job_id, "processing", 10, "正在抓取公開網站內容")
+        issues = []
+        if mode == "site":
+            stats = {}
+            legacy_findings = scan_site(
+                url,
+                max_pages=max_pages,
+                max_depth=max_depth,
+                same_origin=True,
+                respect_robots=True,
+                delay=current_app.config["WEBSITE_SCAN_DELAY_SECONDS"],
+                timeout=current_app.config["WEBSITE_SCAN_HTTP_TIMEOUT_SECONDS"],
+                issues=issues,
+                stats=stats,
+                use_sitemap=use_sitemap,
+                url_validator=validate_public_url,
+            )
+            message = f"整站查驗完成，共掃描 {stats.get('pages_scanned', 0)} 個頁面"
+        else:
+            legacy_findings = scan_url(
+                url,
+                timeout=current_app.config["WEBSITE_SCAN_HTTP_TIMEOUT_SECONDS"],
+                issues=issues,
+                url_validator=validate_public_url,
+            )
+            message = "單一網址查驗完成"
+        _update_job(job_id, "processing", 85, "正在整理網站風險結果")
+        findings = [_legacy_finding(item) for item in legacy_findings]
+        for finding in findings:
+            db.execute(
+                """
+                INSERT INTO findings
+                (id, job_id, file_id, detector, category, risk_level, confidence, masked_text,
+                 location, recommendation, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    job_id,
+                    file_id,
+                    finding.detector,
+                    finding.category,
+                    finding.risk_level,
+                    finding.confidence,
+                    finding.masked_text,
+                    finding.location,
+                    finding.recommendation,
+                    now_iso(),
+                ),
+            )
+        risk_level = _overall_risk(findings)
+        db.execute("UPDATE files SET status = 'completed' WHERE id = ?", (file_id,))
+        db.execute(
+            """
+            UPDATE scan_jobs
+            SET status = 'completed', progress = 100, message = ?, risk_level = ?,
+                updated_at = ?, completed_at = ?
+            WHERE id = ?
+            """,
+            (message, risk_level, now_iso(), now_iso(), job_id),
+        )
+        _audit(
+            "system",
+            "website_scan_completed",
+            "scan_job",
+            job_id,
+            {"mode": mode, "findings": len(findings), "issues": len(issues)},
+        )
+        db.commit()
+    except Exception as exc:
+        db.execute("UPDATE files SET status = 'failed', error = ? WHERE id = ?", (str(exc), file_id))
+        db.execute(
+            """
+            UPDATE scan_jobs
+            SET status = 'failed', progress = 100, message = ?, updated_at = ?, completed_at = ?
+            WHERE id = ?
+            """,
+            (f"網站查驗失敗：{exc}", now_iso(), now_iso(), job_id),
+        )
+        _audit("system", "website_scan_failed", "scan_job", job_id, {"error": str(exc)})
+        db.commit()
 
 
 def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
@@ -386,6 +515,20 @@ def _overall_risk(findings: list[Finding]) -> str:
     if any(f.risk_level == "Low" for f in findings):
         return "Low"
     return "None"
+
+
+def _legacy_finding(item) -> Finding:
+    severity = item.severity.value
+    risk_level = "High" if severity in {"critical", "high"} else "Medium" if severity == "medium" else "Low"
+    return Finding(
+        detector=f"website-{item.detector}",
+        category=item.category,
+        risk_level=risk_level,
+        confidence=0.9,
+        masked_text=item.masked,
+        location=item.source or "網站內容",
+        recommendation="公開網站疑似包含個資，請確認是否有公開依據，必要時移除或遮罩。",
+    )
 
 
 def _update_job(job_id: str, status: str, progress: int, message: str) -> None:
