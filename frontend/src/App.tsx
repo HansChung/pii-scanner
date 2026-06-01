@@ -11,6 +11,7 @@ type Job = {
   message: string | null;
   risk_level: string;
   created_at: string;
+  updated_at: string;
   files: Array<{
     id: string;
     original_name: string;
@@ -180,6 +181,7 @@ function App() {
   const [testingAzureService, setTestingAzureService] = useState<AzureAiService | null>(null);
   const [azureTestResults, setAzureTestResults] = useState<Partial<Record<AzureAiService, AzureAiTestResult>>>({});
   const [roleView, setRoleView] = useState<RoleView>('user');
+  const [clock, setClock] = useState(() => Date.now());
 
   useEffect(() => {
     api.me()
@@ -215,7 +217,7 @@ function App() {
     const timer = window.setInterval(async () => {
       const nextJob = await api.job(jobId);
       setJob(nextJob);
-      if (nextJob.status === 'completed' || nextJob.status === 'failed') {
+      if (isTerminalStatus(nextJob.status)) {
         const data = await api.findings(jobId);
         setFindings(data.items || []);
         window.clearInterval(timer);
@@ -223,6 +225,12 @@ function App() {
     }, 1200);
     return () => window.clearInterval(timer);
   }, [jobId]);
+
+  useEffect(() => {
+    if (!job || isTerminalStatus(job.status)) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [job]);
 
   const riskSummary = useMemo(() => {
     const counts = { High: 0, Medium: 0, Low: 0 };
@@ -436,6 +444,13 @@ function App() {
                   <strong>{job.progress}%</strong>
                 </div>
                 <div className="progress"><span style={{ width: `${job.progress}%` }} /></div>
+                <div className="activity-row">
+                  <span>已耗時 {formatDuration(clock - new Date(job.created_at).getTime())}</span>
+                  <span>最近活動 {formatDuration(clock - new Date(job.updated_at).getTime())} 前</span>
+                </div>
+                {!isTerminalStatus(job.status) && clock - new Date(job.updated_at).getTime() > 45000 && (
+                  <p className="slow-notice">外部 AI 服務回應較慢，系統仍在等待。可繼續等候或取消任務後再試。</p>
+                )}
                 <div className="status-cards">
                   <Metric label="整體風險" value={job.risk_level} tone={riskTone(job.risk_level)} />
                   <Metric label="高風險" value={riskSummary.High.toString()} tone="high" />
@@ -670,6 +685,17 @@ function riskTone(risk: string) {
   if (risk === 'Medium') return 'medium';
   if (risk === 'Low') return 'low';
   return 'none';
+}
+
+function isTerminalStatus(status: string) {
+  return ['completed', 'failed', 'cancelled', 'timed_out'].includes(status);
+}
+
+function formatDuration(milliseconds: number) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes ? `${minutes} 分 ${remainder} 秒` : `${remainder} 秒`;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

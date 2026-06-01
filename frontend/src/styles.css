@@ -346,6 +346,24 @@ button:disabled {
   transition: width .25s ease;
 }
 
+.activity-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -4px 0 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.slow-notice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--tku-yellow);
+  background: #fff8df;
+  color: #684f00;
+  line-height: 1.6;
+}
+
 .status-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

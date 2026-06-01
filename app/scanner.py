@@ -59,18 +59,36 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
     deadline = time.monotonic() + current_app.config["JOB_TIMEOUT_SECONDS"]
     try:
         _ensure_active(job_id, deadline)
-        _update_job(job_id, "processing", 10, "開始抽取文字與 OCR")
+        _update_job(job_id, "processing", 5, "準備開始查驗")
         all_findings: list[tuple[str, Finding]] = []
         for index, record in enumerate(upload_records, start=1):
             _ensure_active(job_id, deadline)
             file_id = record["file_id"]
             path = Path(record["path"])
             extension = record["extension"]
+            file_name = path.name
+            base_progress = 5 + int((index - 1) / len(upload_records) * 85)
+            span = max(1, int(85 / len(upload_records)))
+            _update_file(file_id, "processing")
+            _update_job(job_id, "processing", base_progress + int(span * 0.05), f"{file_name}：抽取文字")
             chunks = extract_text(path, extension)
             if extension in {".pdf", ".jpg", ".jpeg", ".png"} and document_intelligence_enabled():
                 try:
                     _ensure_active(job_id, deadline)
-                    ocr_chunks = extract_with_document_intelligence(path)
+                    _update_job(
+                        job_id,
+                        "processing",
+                        base_progress + int(span * 0.2),
+                        f"{file_name}：等待 Azure AI 文件智慧服務 OCR",
+                    )
+                    ocr_chunks = extract_with_document_intelligence(
+                        path,
+                        heartbeat=lambda: _heartbeat(
+                            job_id,
+                            deadline,
+                            f"{file_name}：等待 Azure AI 文件智慧服務 OCR",
+                        ),
+                    )
                     chunks.extend(ocr_chunks)
                 except (ScanCancelled, ScanTimedOut):
                     raise
@@ -84,9 +102,14 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                     max_image_bytes=current_app.config["OFFICE_OCR_MAX_IMAGE_MB"] * 1024 * 1024,
                 )
                 try:
-                    for image in images:
+                    for image_index, image in enumerate(images, start=1):
                         _ensure_active(job_id, deadline)
-                        for chunk in extract_with_document_intelligence(image.path):
+                        message = f"{file_name}：辨識 Office 內嵌圖片 {image_index}/{len(images)}"
+                        _update_job(job_id, "processing", base_progress + int(span * 0.25), message)
+                        for chunk in extract_with_document_intelligence(
+                            image.path,
+                            heartbeat=lambda: _heartbeat(job_id, deadline, message),
+                        ):
                             chunks.append(
                                 type(chunk)(
                                     text=chunk.text,
@@ -99,31 +122,61 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                     _set_file_error(file_id, f"Office 內嵌圖片 OCR 失敗：{exc}")
                 finally:
                     cleanup_embedded_images(images)
+            _update_job(
+                job_id,
+                "processing",
+                base_progress + int(span * 0.45),
+                f"{file_name}：執行本機個資規則",
+            )
             for chunk in chunks:
                 _ensure_active(job_id, deadline)
                 all_findings.extend((file_id, finding) for finding in detect_with_rules(chunk.text, chunk.location))
-                if language_pii_enabled():
+            azure_batches = _text_batches(chunks, 5000)
+            if language_pii_enabled():
+                for batch_index, batch in enumerate(azure_batches, start=1):
                     try:
+                        _ensure_active(job_id, deadline)
+                        _update_job(
+                            job_id,
+                            "processing",
+                            base_progress + int(span * 0.6),
+                            f"{file_name}：Azure Language PII {batch_index}/{len(azure_batches)}",
+                        )
                         all_findings.extend(
                             (file_id, finding)
-                            for finding in detect_with_azure_language(chunk.text, chunk.location)
+                            for finding in detect_with_azure_language(batch.text, batch.location)
                         )
                     except (ScanCancelled, ScanTimedOut):
                         raise
                     except Exception as exc:
                         _set_file_error(file_id, f"Azure Language PII 失敗：{exc}")
-                if azure_openai_enabled():
-                    try:
-                        all_findings.extend(
-                            (file_id, finding)
-                            for finding in detect_school_context_with_openai(chunk.text, chunk.location)
-                        )
-                    except (ScanCancelled, ScanTimedOut):
-                        raise
-                    except Exception as exc:
-                        _set_file_error(file_id, f"Azure OpenAI 失敗：{exc}")
-            _update_job(job_id, "processing", 10 + int(index / len(upload_records) * 75), "查驗中")
+            if azure_openai_enabled() and azure_batches:
+                try:
+                    _ensure_active(job_id, deadline)
+                    _update_job(
+                        job_id,
+                        "processing",
+                        base_progress + int(span * 0.78),
+                        f"{file_name}：等待 Azure OpenAI 語意風險判斷",
+                    )
+                    openai_text = "\n".join(batch.text for batch in azure_batches)[:6000]
+                    all_findings.extend(
+                        (file_id, finding)
+                        for finding in detect_school_context_with_openai(openai_text, f"{file_name} 彙整文字")
+                    )
+                except (ScanCancelled, ScanTimedOut):
+                    raise
+                except Exception as exc:
+                    _set_file_error(file_id, f"Azure OpenAI 失敗：{exc}")
+            _update_file(file_id, "completed")
+            _update_job(
+                job_id,
+                "processing",
+                base_progress + span,
+                f"{file_name}：檔案查驗完成",
+            )
 
+        _update_job(job_id, "processing", 95, "整理遮罩後風險結果")
         deduped = _dedupe_findings(all_findings)
         for file_id, finding in deduped:
             db.execute(
@@ -276,6 +329,54 @@ def _set_file_error(file_id: str, message: str) -> None:
     db = get_db()
     db.execute("UPDATE files SET error = ? WHERE id = ?", (message, file_id))
     db.commit()
+
+
+def _update_file(file_id: str, status: str) -> None:
+    db = get_db()
+    db.execute("UPDATE files SET status = ? WHERE id = ?", (status, file_id))
+    db.commit()
+
+
+def _heartbeat(job_id: str, deadline: float, message: str) -> None:
+    _ensure_active(job_id, deadline)
+    db = get_db()
+    db.execute(
+        "UPDATE scan_jobs SET message = ?, updated_at = ? WHERE id = ?",
+        (message, now_iso(), job_id),
+    )
+    db.commit()
+
+
+def _text_batches(chunks, limit: int):
+    batches = []
+    texts = []
+    locations = []
+    size = 0
+    for chunk in chunks:
+        text = chunk.text.strip()
+        if not text:
+            continue
+        if texts and size + len(text) + 1 > limit:
+            batches.append(type(chunk)(text="\n".join(texts), location=_batch_location(locations)))
+            texts = []
+            locations = []
+            size = 0
+        while len(text) > limit:
+            batches.append(type(chunk)(text=text[:limit], location=chunk.location))
+            text = text[limit:]
+        if text:
+            texts.append(text)
+            locations.append(chunk.location)
+            size += len(text) + 1
+    if texts:
+        batches.append(type(chunks[0])(text="\n".join(texts), location=_batch_location(locations)))
+    return batches
+
+
+def _batch_location(locations: list[str]) -> str:
+    if len(locations) == 1:
+        return locations[0]
+    return f"{locations[0]} 至 {locations[-1]}"
 
 
 def _ensure_active(job_id: str, deadline: float) -> None:
