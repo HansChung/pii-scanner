@@ -381,7 +381,44 @@ pytest
 - **效能**：採純 regex + 啟發式，可處理 MB 等級檔案；若要掃描大型資料倉儲，建議結合 Spark / DuckDB 等批次工具。
 - **可選整合**：可在 `BaseDetector` 上擴充以接入 Microsoft Presidio、Google DLP 等服務做進一步的 NER 識別。
 
+## Flask + React 審查站介面
+
+本分支另外加入 `app/` 與 `frontend/`，提供適合校內公開網站上稿前查驗的審查站介面：
+
+- Microsoft 365 / Entra ID 登入。
+- PDF、DOCX、PPTX、XLSX、CSV、TXT、JPG、PNG 上傳。
+- 預設單檔 25 MB、單次 5 檔；超過限制時提示使用者自行分檔。
+- 原始檔只進入暫存目錄，任務完成或失敗後刪除。
+- 支援使用者取消任務、每個任務 deadline 與啟動/上傳前過期暫存檔清理。
+- DOCX、PPTX、XLSX 內嵌圖片可送 Azure Document Intelligence OCR。
+- 本機台灣身分證規則會執行加權檢查碼驗證，降低格式誤判。
+- Azure Document Intelligence OCR、Azure AI Language PII 與 Azure OpenAI `gpt-5-mini` adapter。
+- 管理後台可填 Azure AI endpoint 與 API key；key 加密保存且不會明文回傳前端。
+
+此介面目前與既有 FastAPI scanner 平行存在。既有 Azure App Service 啟動命令仍使用 `pii_scanner.web.app:app`，避免在合併時直接切換正式服務入口。
+
+本機啟動審查站：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+npm --prefix frontend install
+npm --prefix frontend run build
+AUTH_REQUIRED=false flask --app app:create_app run --debug
+```
+
+正式啟用 Microsoft 365 登入前，需在 App Service 設定 `FLASK_SECRET_KEY`、`MS_TENANT_ID`、`MS_CLIENT_ID`、`MS_CLIENT_SECRET` 與 `ADMIN_EMAILS`。
+
+可選的掃描安全限制：
+
+```bash
+JOB_TIMEOUT_SECONDS=180
+TEMP_UPLOAD_TTL_SECONDS=3600
+OFFICE_OCR_MAX_IMAGES=30
+OFFICE_OCR_MAX_IMAGE_MB=10
+```
+
 ## 授權
 
 MIT License
-icense
