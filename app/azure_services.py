@@ -4,6 +4,7 @@ import json
 import time
 from io import BytesIO
 from pathlib import Path
+from typing import Callable
 
 import requests
 from PIL import Image, ImageDraw
@@ -97,7 +98,10 @@ def _test_azure_openai() -> None:
     response.raise_for_status()
 
 
-def extract_with_document_intelligence(path: Path) -> list[ExtractedText]:
+def extract_with_document_intelligence(
+    path: Path,
+    heartbeat: Callable[[], None] | None = None,
+) -> list[ExtractedText]:
     config = effective_azure_ai_config()
     endpoint = config["azureDocumentIntelligenceEndpoint"].rstrip("/")
     key = config["azureDocumentIntelligenceKey"]
@@ -116,6 +120,8 @@ def extract_with_document_intelligence(path: Path) -> list[ExtractedText]:
     response.raise_for_status()
     operation_url = response.headers["operation-location"]
     for _ in range(60):
+        if heartbeat:
+            heartbeat()
         poll = requests.get(
             operation_url,
             headers={"Ocp-Apim-Subscription-Key": key},
