@@ -390,9 +390,9 @@ pytest
 - 預設單檔 25 MB、單次 5 檔；超過限制時提示使用者自行分檔。
 - 原始檔只進入暫存目錄，任務完成或失敗後刪除。
 - 支援使用者取消任務、每個任務 deadline 與啟動/上傳前過期暫存檔清理。
-- DOCX、PPTX、XLSX 內嵌圖片可送 Azure Document Intelligence OCR。
+- DOCX、PPTX、XLSX 內嵌圖片可送 Azure AI 文件智慧服務 OCR。
 - 本機台灣身分證規則會執行加權檢查碼驗證，降低格式誤判。
-- Azure Document Intelligence OCR、Azure AI Language PII 與 Azure OpenAI `gpt-5-mini` adapter。
+- Azure AI 文件智慧服務 OCR、Azure AI Language PII 與 Azure OpenAI `gpt-5-mini` adapter。
 - 管理後台可填 Azure AI endpoint 與 API key；key 加密保存且不會明文回傳前端。
 
 此介面目前與既有 FastAPI scanner 平行存在。既有 Azure App Service 啟動命令仍使用 `pii_scanner.web.app:app`，避免在合併時直接切換正式服務入口。

@@ -472,7 +472,7 @@ function App() {
             </div>
             <div className="admin-grid">
               <SecretGroup
-                title="Document Intelligence OCR"
+                title="Azure AI 文件智慧服務 OCR"
                 endpointLabel="Endpoint"
                 endpoint={azureForm.azureDocumentIntelligenceEndpoint}
                 onEndpoint={(value) => setAzureForm({ ...azureForm, azureDocumentIntelligenceEndpoint: value })}
