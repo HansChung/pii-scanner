@@ -5,6 +5,7 @@ from pathlib import Path
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .auth import auth
 from .config import Config
@@ -21,6 +22,7 @@ def create_app() -> Flask:
         instance_relative_config=True,
     )
     app.config.from_object(Config())
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
