@@ -25,6 +25,7 @@ from .models import Finding
 from .office_images import cleanup_embedded_images, extract_embedded_images
 from .pii_rules import detect_with_rules
 from .url_security import validate_public_url
+from pii_scanner.whitelist import apply_whitelist
 from .usage_control import (
     SERVICE_LANGUAGE,
     SERVICE_OCR,
@@ -137,7 +138,7 @@ def run_website_scan(
             )
             message = "單一網址查驗完成"
         _update_job(job_id, "processing", 85, "正在整理網站風險結果")
-        findings = [_legacy_finding(item) for item in legacy_findings]
+        findings = [_legacy_finding(item) for item in apply_whitelist(legacy_findings)]
         for finding in findings:
             db.execute(
                 """

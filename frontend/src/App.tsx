@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, Gauge, Globe2, KeyRound, Link, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud, UserRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, Gauge, Globe2, KeyRound, Link, ListFilter, Loader2, LogOut, PlugZap, Plus, Settings, ShieldCheck, Trash2, UploadCloud, UserRound } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -66,6 +66,24 @@ type UsageSummary = {
 };
 
 type UsageMetric = { used: number; limit: number; remaining: number };
+
+type DomainRule = {
+  domain: string;
+  disabled_detectors: string[];
+  ignore_words: string[];
+};
+
+type WhitelistConfig = {
+  version: number;
+  global_disabled_detectors: string[];
+  ignore_words: string[];
+  domain_rules: DomainRule[];
+};
+
+type WhitelistState = {
+  config: WhitelistConfig;
+  detectors: string[];
+};
 
 type AuthState = {
   authenticated: boolean;
@@ -149,6 +167,20 @@ const api = {
   async usage(): Promise<UsageSummary> {
     const res = await fetch('/api/admin/usage');
     return res.json();
+  },
+  async whitelist(): Promise<WhitelistState> {
+    const res = await fetch('/api/admin/whitelist');
+    return res.json();
+  },
+  async updateWhitelist(payload: WhitelistConfig): Promise<WhitelistState> {
+    const res = await fetch('/api/admin/whitelist', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || '白名單保存失敗');
+    return data;
   },
   async azureAiSettings(): Promise<AzureAiSettings> {
     const res = await fetch('/api/admin/azure-ai');
@@ -241,6 +273,7 @@ function App() {
   const [websiteMaxPages, setWebsiteMaxPages] = useState(10);
   const [websiteMaxDepth, setWebsiteMaxDepth] = useState(1);
   const [websiteUseSitemap, setWebsiteUseSitemap] = useState(false);
+  const [whitelist, setWhitelist] = useState<WhitelistState | null>(null);
 
   useEffect(() => {
     api.me()
@@ -249,8 +282,9 @@ function App() {
         if (state.authenticated || !state.authRequired) {
           return Promise.all([
             api.settings().then(setSettings),
-            state.isAdmin ? Promise.all([api.azureAiSettings(), api.usage()]).then(([config, usageSummary]) => {
+            state.isAdmin ? Promise.all([api.azureAiSettings(), api.usage(), api.whitelist()]).then(([config, usageSummary, whitelistState]) => {
               setUsage(usageSummary);
+              setWhitelist(whitelistState);
               setAzureSettings(config);
               setAzureForm({
                 azureDocumentIntelligenceEndpoint: config.azureDocumentIntelligenceEndpoint,
@@ -405,6 +439,16 @@ function App() {
       setError('Azure AI 設定已保存，新的查驗任務會使用更新後設定');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Azure AI 設定保存失敗');
+    }
+  }
+
+  async function saveWhitelist() {
+    if (!whitelist) return;
+    try {
+      setWhitelist(await api.updateWhitelist(whitelist.config));
+      setError('白名單已保存，後續網站查驗會立即套用');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '白名單保存失敗');
     }
   }
 
@@ -748,6 +792,70 @@ function App() {
           </section>
         )}
 
+        {roleView === 'admin' && auth.isAdmin && whitelist && (
+          <section className="panel admin-panel whitelist-panel">
+            <div className="panel-title">
+              <ListFilter size={22} />
+              <h3>網站掃描白名單</h3>
+            </div>
+            <p className="form-note">白名單只影響後續網站掃描。勾選代表停用該偵測器；忽略詞命中值或上下文時不列入結果。</p>
+            <label className="field-label">
+              全域忽略詞
+              <textarea
+                value={whitelist.config.ignore_words.join('\n')}
+                onChange={(event) => setWhitelist({
+                  ...whitelist,
+                  config: { ...whitelist.config, ignore_words: splitLines(event.target.value) },
+                })}
+                placeholder={'淡江大學\npublic@example.com'}
+              />
+            </label>
+            <DetectorGrid
+              detectors={whitelist.detectors}
+              selected={whitelist.config.global_disabled_detectors}
+              onChange={(selected) => setWhitelist({
+                ...whitelist,
+                config: { ...whitelist.config, global_disabled_detectors: selected },
+              })}
+            />
+            <div className="domain-rule-list">
+              {whitelist.config.domain_rules.map((rule, index) => (
+                <div className="domain-rule" key={index}>
+                  <div className="domain-rule-title">
+                    <strong>網域規則 #{index + 1}</strong>
+                    <button className="icon-button" title="刪除網域規則" onClick={() => setWhitelist({
+                      ...whitelist,
+                      config: {
+                        ...whitelist.config,
+                        domain_rules: whitelist.config.domain_rules.filter((_, ruleIndex) => ruleIndex !== index),
+                      },
+                    })}><Trash2 size={17} /></button>
+                  </div>
+                  <label className="field-label">
+                    網域
+                    <input value={rule.domain} onChange={(event) => updateDomainRule(whitelist, setWhitelist, index, { domain: event.target.value })} placeholder="tku.edu.tw" />
+                  </label>
+                  <label className="field-label">
+                    此網域忽略詞
+                    <textarea value={rule.ignore_words.join('\n')} onChange={(event) => updateDomainRule(whitelist, setWhitelist, index, { ignore_words: splitLines(event.target.value) })} />
+                  </label>
+                  <DetectorGrid detectors={whitelist.detectors} selected={rule.disabled_detectors} onChange={(selected) => updateDomainRule(whitelist, setWhitelist, index, { disabled_detectors: selected })} />
+                </div>
+              ))}
+            </div>
+            <div className="admin-actions">
+              <button className="secondary-button" onClick={() => setWhitelist({
+                ...whitelist,
+                config: {
+                  ...whitelist.config,
+                  domain_rules: [...whitelist.config.domain_rules, { domain: '', disabled_detectors: [], ignore_words: [] }],
+                },
+              })}><Plus size={18} /> 新增網域規則</button>
+              <button onClick={saveWhitelist}><CheckCircle2 size={18} /> 保存白名單</button>
+            </div>
+          </section>
+        )}
+
         {roleView === 'user' && <section className="panel findings-panel">
           <div className="panel-title">
             <AlertTriangle size={22} />
@@ -813,6 +921,57 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
     </label>
   );
 }
+
+function DetectorGrid({ detectors, selected, onChange }: { detectors: string[]; selected: string[]; onChange: (selected: string[]) => void }) {
+  return (
+    <div className="detector-grid">
+      {detectors.map((detector) => (
+        <label key={detector}>
+          <input
+            type="checkbox"
+            checked={selected.includes(detector)}
+            onChange={(event) => onChange(event.target.checked ? [...selected, detector] : selected.filter((item) => item !== detector))}
+          />
+          停用 {DETECTOR_LABELS[detector] || detector}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function updateDomainRule(whitelist: WhitelistState, setWhitelist: (state: WhitelistState) => void, index: number, update: Partial<DomainRule>) {
+  setWhitelist({
+    ...whitelist,
+    config: {
+      ...whitelist.config,
+      domain_rules: whitelist.config.domain_rules.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...update } : rule),
+    },
+  });
+}
+
+function splitLines(value: string) {
+  return value.split('\n').map((item) => item.trim()).filter(Boolean);
+}
+
+const DETECTOR_LABELS: Record<string, string> = {
+  surname_name: '百家姓全文',
+  chinese_name: '關鍵字姓名',
+  taiwan_address: '台灣地址',
+  taiwan_id: '身分證',
+  taiwan_mobile: '手機',
+  email: 'Email',
+  ipv4: 'IPv4',
+  taiwan_landline: '市話',
+  credit_card: '信用卡',
+  taiwan_business_id: '統編',
+  taiwan_passport: '護照',
+  taiwan_nhi_card: '健保卡',
+  bank_account: '銀行帳號',
+  date_of_birth: '生日',
+  taiwan_license_plate: '車牌',
+  ipv6: 'IPv6',
+  taiwan_resident_cert: '居留證',
+};
 
 function SecretGroup({
   title,
