@@ -3,48 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>白名單管理 — PII Scanner</title>
+<title>白名單管理 — 個人資料保護稽核系統</title>
 <style>
   :root {
     color-scheme: light dark;
-    --bg-grad-1: #eef2ff;
-    --bg-grad-2: #f6f8fc;
+    /* 學術系統配色：學院深藍 */
+    --bg-grad-1: #eaf0f7;
+    --bg-grad-2: #f4f6fa;
     --surface: #ffffff;
-    --surface-2: #f7f9ff;
-    --surface-inset: #f1f4fb;
-    --border: #e2e6f0;
-    --border-strong: #c8cce0;
-    --text: #1a1f33;
-    --text-soft: #4a5074;
-    --text-mute: #6a7194;
-    --brand: #4f46e5;
-    --brand-2: #6366f1;
-    --brand-soft: #eef2ff;
-    --brand-ring: rgba(79, 70, 229, .25);
-    --ok: #16a34a; --ok-bg: #dcfce7;
-    --err: #b91c1c; --err-bg: #fee2e2;
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .04);
-    --shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 10px 30px -12px rgba(15, 23, 42, .10);
-    --radius: 14px;
-    --radius-sm: 10px;
+    --surface-2: #f6f8fc;
+    --surface-inset: #eef2f8;
+    --border: #dde3ee;
+    --border-strong: #c2cbdb;
+    --text: #16213a;
+    --text-soft: #41506b;
+    --text-mute: #66738e;
+    --brand: #134e8e;
+    --brand-2: #1a63b0;
+    --brand-soft: #e9f0f9;
+    --brand-ring: rgba(19, 78, 142, .22);
+    --accent: #b8860b;
+    --ok: #1d7a47; --ok-bg: #dcf0e4;
+    --err: #a82a23; --err-bg: #fbe3e1;
+    --shadow-sm: 0 1px 2px rgba(16, 33, 58, .05);
+    --shadow: 0 1px 3px rgba(16, 33, 58, .07), 0 8px 24px -14px rgba(16, 33, 58, .18);
+    --radius: 12px;
+    --radius-sm: 9px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg-grad-1: #11173a;
-      --bg-grad-2: #0b1020;
-      --surface: #151b34;
-      --surface-2: #1b223e;
-      --surface-inset: #11172e;
-      --border: #2b3357;
-      --border-strong: #3a4374;
-      --text: #e6e8f5;
-      --text-soft: #b0b6d4;
-      --text-mute: #8a90b3;
-      --brand: #818cf8;
-      --brand-2: #a5b4fc;
-      --brand-soft: #1f244a;
-      --brand-ring: rgba(129, 140, 248, .35);
-      --ok-bg: #0d2818; --err-bg: #3a1818;
+      --bg-grad-1: #0e1c30;
+      --bg-grad-2: #0a111e;
+      --surface: #121d30;
+      --surface-2: #16243a;
+      --surface-inset: #0f1a2c;
+      --border: #243a55;
+      --border-strong: #335074;
+      --text: #e3e9f2;
+      --text-soft: #aab8cc;
+      --text-mute: #8593a8;
+      --brand: #5b9bd5;
+      --brand-2: #7fb3e0;
+      --brand-soft: #142840;
+      --brand-ring: rgba(91, 155, 213, .32);
+      --accent: #d4af5a;
+      --ok-bg: #0c2719; --err-bg: #381616;
     }
   }
   * { box-sizing: border-box; }
@@ -73,10 +76,11 @@
     padding: 14px 24px; max-width: 1180px; margin: 0 auto;
   }
   .brand-mark {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: linear-gradient(135deg, var(--brand) 0%, #22d3ee 100%);
+    width: 38px; height: 38px; border-radius: 9px;
+    background: linear-gradient(160deg, var(--brand) 0%, var(--brand-2) 100%);
     display: grid; place-items: center; color: white;
-    box-shadow: 0 6px 20px -6px var(--brand-ring);
+    box-shadow: 0 6px 18px -8px var(--brand-ring);
+    border: 1px solid color-mix(in oklab, var(--brand) 40%, white 10%);
   }
   .brand-text { line-height: 1.1; }
   .brand-text strong { font-size: 15px; font-weight: 700; }
@@ -85,9 +89,8 @@
 
   main { max-width: 1080px; margin: 0 auto; padding: 32px 24px 56px; }
   h1 {
-    margin: 0 0 4px; font-size: 28px; letter-spacing: -.4px;
-    background: linear-gradient(180deg, var(--text) 0%, color-mix(in oklab, var(--text) 70%, var(--brand)) 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin: 0 0 6px; font-size: 27px; letter-spacing: -.2px;
+    color: var(--brand); font-weight: 800;
   }
   h1 + p { margin: 0 0 24px; color: var(--text-soft); font-size: 14.5px; }
 
@@ -208,7 +211,7 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
     </div>
     <div class="brand-text">
-      <strong>PII Scanner</strong><br>
+      <strong>個人資料保護稽核系統</strong><br>
       <small>白名單管理</small>
     </div>
     <nav>

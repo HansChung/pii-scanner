@@ -3,63 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>個資掃描器 PII Scanner</title>
+<title>個人資料保護稽核系統 — PII Scanner</title>
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #f4f6fb;
-    --bg-grad-1: #eef2ff;
-    --bg-grad-2: #f6f8fc;
+    /* 學術系統配色：以穩重的學院深藍 (academic navy) 為主色 */
+    --bg: #f3f5f9;
+    --bg-grad-1: #eaf0f7;
+    --bg-grad-2: #f4f6fa;
     --surface: #ffffff;
-    --surface-2: #f7f9ff;
-    --surface-inset: #f1f4fb;
-    --border: #e2e6f0;
-    --border-strong: #c8cce0;
-    --text: #1a1f33;
-    --text-soft: #4a5074;
-    --text-mute: #6a7194;
-    --brand: #4f46e5;
-    --brand-2: #6366f1;
-    --brand-soft: #eef2ff;
-    --brand-ring: rgba(79, 70, 229, .25);
-    --critical: #dc2626; --critical-bg: #fee2e2; --critical-soft: #fef2f2;
-    --high: #ea580c;    --high-bg: #ffedd5;    --high-soft: #fff7ed;
-    --medium: #ca8a04;  --medium-bg: #fef3c7;  --medium-soft: #fffbeb;
-    --low: #2563eb;     --low-bg: #dbeafe;     --low-soft: #eff6ff;
-    --ok: #16a34a; --ok-bg: #dcfce7;
-    --warn: #b45309; --warn-bg: #fef3c7;
-    --err: #b91c1c; --err-bg: #fee2e2;
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 1px rgba(15, 23, 42, .03);
-    --shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 10px 30px -12px rgba(15, 23, 42, .10);
-    --shadow-lg: 0 8px 24px -8px rgba(79, 70, 229, .18), 0 30px 60px -30px rgba(15, 23, 42, .25);
-    --radius: 14px;
-    --radius-sm: 10px;
+    --surface-2: #f6f8fc;
+    --surface-inset: #eef2f8;
+    --border: #dde3ee;
+    --border-strong: #c2cbdb;
+    --text: #16213a;
+    --text-soft: #41506b;
+    --text-mute: #66738e;
+    --brand: #134e8e;       /* 學院深藍 */
+    --brand-2: #1a63b0;     /* 輔助藍 */
+    --brand-soft: #e9f0f9;
+    --brand-ring: rgba(19, 78, 142, .22);
+    --accent: #b8860b;      /* 學術金（點綴用） */
+    --critical: #c0322b; --critical-bg: #fbe3e1; --critical-soft: #fdf2f1;
+    --high: #c2691c;    --high-bg: #fbe9d6;    --high-soft: #fdf6ee;
+    --medium: #a87a16;  --medium-bg: #f9eecb;  --medium-soft: #fdf8ea;
+    --low: #2f6fb0;     --low-bg: #dde9f6;     --low-soft: #eef4fb;
+    --ok: #1d7a47; --ok-bg: #dcf0e4;
+    --warn: #9a6213; --warn-bg: #f8eccb;
+    --err: #a82a23; --err-bg: #fbe3e1;
+    --shadow-sm: 0 1px 2px rgba(16, 33, 58, .05), 0 1px 1px rgba(16, 33, 58, .04);
+    --shadow: 0 1px 3px rgba(16, 33, 58, .07), 0 8px 24px -14px rgba(16, 33, 58, .18);
+    --shadow-lg: 0 6px 18px -10px rgba(19, 78, 142, .22), 0 24px 50px -28px rgba(16, 33, 58, .30);
+    --radius: 12px;
+    --radius-sm: 9px;
     --radius-pill: 999px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0b1020;
-      --bg-grad-1: #11173a;
-      --bg-grad-2: #0b1020;
-      --surface: #151b34;
-      --surface-2: #1b223e;
-      --surface-inset: #11172e;
-      --border: #2b3357;
-      --border-strong: #3a4374;
-      --text: #e6e8f5;
-      --text-soft: #b0b6d4;
-      --text-mute: #8a90b3;
-      --brand: #818cf8;
-      --brand-2: #a5b4fc;
-      --brand-soft: #1f244a;
-      --brand-ring: rgba(129, 140, 248, .35);
-      --critical-bg: #3a1818; --critical-soft: #2a1212;
-      --high-bg: #3a2410; --high-soft: #281708;
-      --medium-bg: #36280f; --medium-soft: #2a1f0b;
-      --low-bg: #16224a; --low-soft: #0f1936;
-      --ok-bg: #0d2818; --warn-bg: #36280f; --err-bg: #3a1818;
-      --shadow: 0 1px 3px rgba(0,0,0,.4), 0 10px 30px -12px rgba(0,0,0,.55);
-      --shadow-lg: 0 8px 24px -8px rgba(129, 140, 248, .25), 0 30px 60px -30px rgba(0,0,0,.6);
+      --bg: #0a111e;
+      --bg-grad-1: #0e1c30;
+      --bg-grad-2: #0a111e;
+      --surface: #121d30;
+      --surface-2: #16243a;
+      --surface-inset: #0f1a2c;
+      --border: #243a55;
+      --border-strong: #335074;
+      --text: #e3e9f2;
+      --text-soft: #aab8cc;
+      --text-mute: #8593a8;
+      --brand: #5b9bd5;
+      --brand-2: #7fb3e0;
+      --brand-soft: #142840;
+      --brand-ring: rgba(91, 155, 213, .32);
+      --accent: #d4af5a;
+      --critical-bg: #381616; --critical-soft: #281010;
+      --high-bg: #38230f; --high-soft: #271607;
+      --medium-bg: #34270e; --medium-soft: #281e0a;
+      --low-bg: #142840; --low-soft: #0e1d31;
+      --ok-bg: #0c2719; --warn-bg: #34270e; --err-bg: #381616;
+      --shadow: 0 1px 3px rgba(0,0,0,.45), 0 10px 30px -14px rgba(0,0,0,.6);
+      --shadow-lg: 0 6px 18px -10px rgba(91, 155, 213, .25), 0 24px 50px -28px rgba(0,0,0,.65);
     }
   }
   * { box-sizing: border-box; }
@@ -70,8 +73,7 @@
     margin: 0;
     color: var(--text);
     background:
-      radial-gradient(1200px 600px at 10% -10%, var(--brand-soft) 0%, transparent 55%),
-      radial-gradient(900px 500px at 110% 0%, #e0f2fe33 0%, transparent 60%),
+      radial-gradient(1100px 520px at 12% -12%, var(--brand-soft) 0%, transparent 52%),
       linear-gradient(180deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 100%);
     background-attachment: fixed;
     min-height: 100%;
@@ -97,12 +99,13 @@
     max-width: 1180px; margin: 0 auto;
   }
   .brand-mark {
-    width: 36px; height: 36px; border-radius: 10px;
-    background: linear-gradient(135deg, var(--brand) 0%, #22d3ee 100%);
+    width: 38px; height: 38px; border-radius: 9px;
+    background: linear-gradient(160deg, var(--brand) 0%, var(--brand-2) 100%);
     display: grid; place-items: center; color: white;
-    box-shadow: 0 6px 20px -6px var(--brand-ring);
+    box-shadow: 0 6px 18px -8px var(--brand-ring);
+    border: 1px solid color-mix(in oklab, var(--brand) 40%, white 10%);
   }
-  .brand-text { line-height: 1.1; }
+  .brand-text { line-height: 1.15; }
   .brand-text strong { font-size: 15px; font-weight: 700; letter-spacing: .2px; }
   .brand-text small { color: var(--text-mute); font-size: 12px; }
   .topbar nav { margin-left: auto; display: flex; gap: 8px; align-items: center; }
@@ -124,11 +127,15 @@
     padding: 40px 0 8px;
   }
   header.hero h1 {
-    margin: 0 0 8px; font-size: 32px; line-height: 1.2; letter-spacing: -.5px;
-    background: linear-gradient(180deg, var(--text) 0%, color-mix(in oklab, var(--text) 70%, var(--brand)) 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin: 0 0 10px; font-size: 31px; line-height: 1.22; letter-spacing: -.3px;
+    color: var(--brand);
+    font-weight: 800;
   }
-  header.hero p { margin: 0; color: var(--text-soft); font-size: 15px; }
+  .hero-rule {
+    width: 64px; height: 3px; border-radius: 3px; margin: 0 0 14px;
+    background: linear-gradient(90deg, var(--brand) 0%, var(--accent) 100%);
+  }
+  header.hero p { margin: 0; color: var(--text-soft); font-size: 15px; line-height: 1.7; max-width: 760px; }
   .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
   .chip {
     display: inline-flex; align-items: center; gap: 6px;
@@ -552,8 +559,8 @@
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
     </div>
     <div class="brand-text">
-      <strong>PII Scanner</strong><br>
-      <small>個人資料自動掃描器</small>
+      <strong>個人資料保護稽核系統</strong><br>
+      <small>Personal Data Protection · PII Scanner</small>
     </div>
     <nav>
       <span class="badge-dot">服務運作中</span>
@@ -564,8 +571,9 @@
 
 <div class="container">
   <header class="hero">
-    <h1>個資 (PII) 自動掃描</h1>
-    <p>檢測台灣身分證、健保卡、護照、信用卡、手機、Email、車牌、IP、住址等敏感資料；支援文字、檔案、URL 與整站掃描。</p>
+    <h1>個人資料 (PII) 自動稽核</h1>
+    <div class="hero-rule" aria-hidden="true"></div>
+    <p>協助校內單位於資料對外公開、上傳或交付前，檢測台灣身分證、健保卡、護照、信用卡、手機、Email、車牌、IP、住址等敏感個資；支援文字、檔案、網址與整站稽核。</p>
     <div class="chips" aria-label="支援偵測格式">
       <span class="chip">身分證</span>
       <span class="chip">手機</span>
