@@ -33,6 +33,7 @@ def init_db() -> None:
 
         CREATE TABLE IF NOT EXISTS scan_jobs (
             id TEXT PRIMARY KEY,
+            actor TEXT NOT NULL DEFAULT 'anonymous',
             status TEXT NOT NULL,
             progress INTEGER NOT NULL DEFAULT 0,
             message TEXT,
@@ -92,7 +93,26 @@ def init_db() -> None:
             metadata TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS ai_usage (
+            id TEXT PRIMARY KEY,
+            job_id TEXT,
+            actor TEXT NOT NULL,
+            service TEXT NOT NULL,
+            units INTEGER NOT NULL,
+            unit_name TEXT NOT NULL,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(job_id) REFERENCES scan_jobs(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_usage_job_id ON ai_usage(job_id);
         """
+    )
+    _ensure_column(db, "scan_jobs", "actor", "TEXT NOT NULL DEFAULT 'anonymous'")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scan_jobs_actor_created_at ON scan_jobs(actor, created_at)"
     )
     db.commit()
 
@@ -100,3 +120,8 @@ def init_db() -> None:
 def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
+
+def _ensure_column(db: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

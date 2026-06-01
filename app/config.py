@@ -27,6 +27,11 @@ class Config:
         self.TEMP_UPLOAD_TTL_SECONDS = int(os.getenv("TEMP_UPLOAD_TTL_SECONDS", "3600"))
         self.OFFICE_OCR_MAX_IMAGES = int(os.getenv("OFFICE_OCR_MAX_IMAGES", "30"))
         self.OFFICE_OCR_MAX_IMAGE_MB = int(os.getenv("OFFICE_OCR_MAX_IMAGE_MB", "10"))
+        self.DAILY_USER_JOB_LIMIT = int(os.getenv("DAILY_USER_JOB_LIMIT", "30"))
+        self.MONTHLY_OCR_PAGE_LIMIT = int(os.getenv("MONTHLY_OCR_PAGE_LIMIT", "10000"))
+        self.MONTHLY_LANGUAGE_RECORD_LIMIT = int(os.getenv("MONTHLY_LANGUAGE_RECORD_LIMIT", "10000"))
+        self.MONTHLY_OPENAI_TOKEN_LIMIT = int(os.getenv("MONTHLY_OPENAI_TOKEN_LIMIT", "1000000"))
+        self.SCHOOL_TIMEZONE = os.getenv("SCHOOL_TIMEZONE", "Asia/Taipei")
         self.AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "true").lower() not in {"0", "false", "no"}
         self.MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
         self.MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")

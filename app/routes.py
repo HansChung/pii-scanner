@@ -19,6 +19,7 @@ from .secret_settings import (
     public_azure_ai_config,
     update_azure_ai_config,
 )
+from .usage_control import effective_settings, estimate_files, job_usage, quota_check, usage_summary
 
 api = Blueprint("api", __name__)
 
@@ -49,7 +50,8 @@ def upload_and_check():
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "missing_files", "message": "請選擇要查驗的檔案。"}), 400
-    settings = _effective_settings()
+    settings = effective_settings()
+    actor = current_user_name()
     if len(files) > settings["maxFilesPerUpload"]:
         return (
             jsonify(
@@ -131,15 +133,35 @@ def upload_and_check():
                 }
             )
 
+        estimate = estimate_files(
+            [
+                {"extension": record["extension"], "size": Path(record["path"]).stat().st_size}
+                for record in upload_records
+            ]
+        )
+        quota_errors = quota_check(actor, estimate)
+        if quota_errors:
+            db.rollback()
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            return (
+                jsonify(
+                    {
+                        "error": "quota_exceeded",
+                        "message": " ".join(quota_errors),
+                        "estimate": estimate,
+                    }
+                ),
+                429,
+            )
         db.execute(
             """
             INSERT INTO scan_jobs
-            (id, status, progress, message, file_count, total_size, created_at, updated_at)
-            VALUES (?, 'queued', 0, '等待查驗', ?, ?, ?, ?)
+            (id, actor, status, progress, message, file_count, total_size, created_at, updated_at)
+            VALUES (?, ?, 'queued', 0, '等待查驗', ?, ?, ?, ?)
             """,
-            (job_id, len(upload_records), total_size, now_iso(), now_iso()),
+            (job_id, actor, len(upload_records), total_size, now_iso(), now_iso()),
         )
-        _audit(current_user_name(), "files_uploaded", "scan_job", job_id, {"fileCount": len(upload_records)})
+        _audit(actor, "files_uploaded", "scan_job", job_id, {"fileCount": len(upload_records), "estimate": estimate})
         db.commit()
         submit_scan(job_id, upload_records)
         return jsonify({"jobId": job_id, "status": "queued"}), 202
@@ -149,6 +171,31 @@ def upload_and_check():
             path.unlink(missing_ok=True)
         upload_dir.rmdir()
         raise
+
+
+@api.post("/files/estimate")
+@login_required
+def estimate_upload():
+    payload = request.get_json(silent=True) or {}
+    files = payload.get("files", [])
+    if not isinstance(files, list):
+        return jsonify({"error": "invalid_files", "message": "files 必須是陣列。"}), 400
+    settings = effective_settings()
+    normalized = []
+    errors = []
+    if len(files) > settings["maxFilesPerUpload"]:
+        errors.append(f"單次最多上傳 {settings['maxFilesPerUpload']} 個檔案。")
+    for item in files:
+        extension = normalize_extension(str(item.get("name", "")))
+        size = max(0, int(item.get("size", 0)))
+        if extension not in settings["allowedExtensions"]:
+            errors.append(f"不支援的檔案格式：{extension or '未知'}")
+        if size > settings["maxFileMb"] * 1024 * 1024:
+            errors.append("檔案過大，請先分檔後重新上傳。")
+        normalized.append({"extension": extension, "size": size})
+    estimate = estimate_files(normalized)
+    errors.extend(quota_check(current_user_name(), estimate))
+    return jsonify({"estimate": estimate, "allowed": not errors, "errors": errors})
 
 
 @api.get("/jobs/<job_id>")
@@ -251,24 +298,57 @@ def report(job_id: str):
             (job_id,),
         ).fetchall()
     ]
-    return jsonify({"job": job, "findings": findings, "reviews": reviews})
+    return jsonify({"job": job, "findings": findings, "reviews": reviews, "aiUsage": job_usage(job_id)})
 
 
 @api.get("/admin/settings")
 @login_required
 def get_settings():
-    return jsonify(_effective_settings())
+    return jsonify(effective_settings())
 
 
 @api.put("/admin/settings")
 @admin_required
 def put_settings():
     payload = request.get_json(silent=True) or {}
-    allowed_keys = {"maxFileMb", "maxFilesPerUpload", "allowedExtensions", "highRiskThreshold"}
+    allowed_keys = {
+        "maxFileMb",
+        "maxFilesPerUpload",
+        "allowedExtensions",
+        "highRiskThreshold",
+        "dailyUserJobLimit",
+        "monthlyOcrPageLimit",
+        "monthlyLanguageRecordLimit",
+        "monthlyOpenAiTokenLimit",
+        "documentIntelligenceEnabled",
+        "languagePiiEnabled",
+        "openAiEnabled",
+        "openAiEscalationOnly",
+    }
+    integer_keys = {
+        "maxFileMb",
+        "maxFilesPerUpload",
+        "dailyUserJobLimit",
+        "monthlyOcrPageLimit",
+        "monthlyLanguageRecordLimit",
+        "monthlyOpenAiTokenLimit",
+    }
+    boolean_keys = {
+        "documentIntelligenceEnabled",
+        "languagePiiEnabled",
+        "openAiEnabled",
+        "openAiEscalationOnly",
+    }
     db = get_db()
     for key in allowed_keys:
         if key in payload:
             value = payload[key]
+            if key in integer_keys and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
+                return jsonify({"error": "invalid_settings", "message": f"{key} 必須是非負整數。"}), 400
+            if key in {"maxFileMb", "maxFilesPerUpload", "dailyUserJobLimit"} and value < 1:
+                return jsonify({"error": "invalid_settings", "message": f"{key} 必須至少為 1。"}), 400
+            if key in boolean_keys and not isinstance(value, bool):
+                return jsonify({"error": "invalid_settings", "message": f"{key} 必須是布林值。"}), 400
             if key == "allowedExtensions":
                 if not isinstance(value, list):
                     return jsonify({"error": "invalid_settings", "message": "allowedExtensions 必須是陣列。"}), 400
@@ -283,7 +363,13 @@ def put_settings():
             )
     _audit(current_user_name(), "settings_updated", "settings", "global", {})
     db.commit()
-    return jsonify(_effective_settings())
+    return jsonify(effective_settings())
+
+
+@api.get("/admin/usage")
+@admin_required
+def get_usage_summary():
+    return jsonify(usage_summary(current_user_name()))
 
 
 @api.get("/admin/azure-ai")
@@ -328,22 +414,6 @@ def test_azure_ai_settings():
     _audit(current_user_name(), "azure_ai_connection_tested", "settings", service, {})
     get_db().commit()
     return jsonify({"service": service, "status": "ok", "message": message})
-
-
-def _effective_settings() -> dict:
-    db = get_db()
-    rows = db.execute("SELECT key, value FROM settings").fetchall()
-    values = {row["key"]: json.loads(row["value"]) for row in rows}
-    return {
-        "maxFileMb": int(values.get("maxFileMb", current_app.config["MAX_FILE_MB"])),
-        "maxFilesPerUpload": int(
-            values.get("maxFilesPerUpload", current_app.config["MAX_FILES_PER_UPLOAD"])
-        ),
-        "allowedExtensions": values.get(
-            "allowedExtensions", sorted(current_app.config["ALLOWED_EXTENSIONS"])
-        ),
-        "highRiskThreshold": float(values.get("highRiskThreshold", 0.8)),
-    }
 
 
 def _audit(actor: str, action: str, target_type: str, target_id: str, metadata: dict) -> None:

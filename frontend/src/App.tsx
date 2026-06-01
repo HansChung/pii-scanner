@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, KeyRound, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud, UserRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, Gauge, KeyRound, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud, UserRound } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -39,7 +39,33 @@ type SettingsShape = {
   maxFilesPerUpload: number;
   allowedExtensions: string[];
   highRiskThreshold: number;
+  dailyUserJobLimit: number;
+  monthlyOcrPageLimit: number;
+  monthlyLanguageRecordLimit: number;
+  monthlyOpenAiTokenLimit: number;
+  documentIntelligenceEnabled: boolean;
+  languagePiiEnabled: boolean;
+  openAiEnabled: boolean;
+  openAiEscalationOnly: boolean;
 };
+
+type UsageEstimate = {
+  ocrPages: number;
+  languageRecords: number;
+  openAiTokens: number;
+};
+
+type UsageSummary = {
+  today: { userJobs: number };
+  monthly: {
+    ocrPages: UsageMetric;
+    languageRecords: UsageMetric;
+    openAiTokens: UsageMetric;
+  };
+  dailyUserJobLimit: number;
+};
+
+type UsageMetric = { used: number; limit: number; remaining: number };
 
 type AuthState = {
   authenticated: boolean;
@@ -108,6 +134,18 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    return res.json();
+  },
+  async estimate(files: File[]): Promise<{ estimate: UsageEstimate; allowed: boolean; errors: string[] }> {
+    const res = await fetch('/api/files/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: files.map((file) => ({ name: file.name, size: file.size })) }),
+    });
+    return res.json();
+  },
+  async usage(): Promise<UsageSummary> {
+    const res = await fetch('/api/admin/usage');
     return res.json();
   },
   async azureAiSettings(): Promise<AzureAiSettings> {
@@ -182,6 +220,9 @@ function App() {
   const [azureTestResults, setAzureTestResults] = useState<Partial<Record<AzureAiService, AzureAiTestResult>>>({});
   const [roleView, setRoleView] = useState<RoleView>('user');
   const [clock, setClock] = useState(() => Date.now());
+  const [usageEstimate, setUsageEstimate] = useState<UsageEstimate | null>(null);
+  const [estimateErrors, setEstimateErrors] = useState<string[]>([]);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
 
   useEffect(() => {
     api.me()
@@ -190,7 +231,8 @@ function App() {
         if (state.authenticated || !state.authRequired) {
           return Promise.all([
             api.settings().then(setSettings),
-            state.isAdmin ? api.azureAiSettings().then((config) => {
+            state.isAdmin ? Promise.all([api.azureAiSettings(), api.usage()]).then(([config, usageSummary]) => {
+              setUsage(usageSummary);
               setAzureSettings(config);
               setAzureForm({
                 azureDocumentIntelligenceEndpoint: config.azureDocumentIntelligenceEndpoint,
@@ -213,6 +255,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!selectedFiles.length) {
+      setUsageEstimate(null);
+      setEstimateErrors([]);
+      return;
+    }
+    api.estimate(selectedFiles)
+      .then((result) => {
+        setUsageEstimate(result.estimate);
+        setEstimateErrors(result.errors);
+      })
+      .catch(() => setEstimateErrors(['無法取得預估用量，請稍後再試。']));
+  }, [selectedFiles]);
+
+  useEffect(() => {
     if (!jobId) return;
     const timer = window.setInterval(async () => {
       const nextJob = await api.job(jobId);
@@ -231,6 +287,12 @@ function App() {
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [job]);
+
+  useEffect(() => {
+    if (roleView === 'admin' && auth?.isAdmin) {
+      api.usage().then(setUsage).catch(() => setError('無法更新用量統計'));
+    }
+  }, [roleView, auth?.isAdmin]);
 
   const riskSummary = useMemo(() => {
     const counts = { High: 0, Medium: 0, Low: 0 };
@@ -258,13 +320,12 @@ function App() {
     }
   }
 
-  async function saveLimit() {
+  async function saveLimits() {
     if (!settings) return;
-    const updated = await api.updateSettings({
-      maxFileMb: settings.maxFileMb,
-      maxFilesPerUpload: settings.maxFilesPerUpload,
-    });
+    const updated = await api.updateSettings(settings);
     setSettings(updated);
+    setUsage(await api.usage());
+    setError('成本控管設定已保存');
   }
 
   async function submitReview(decision: string) {
@@ -426,7 +487,16 @@ function App() {
                 </div>
               ))}
             </div>
-            <button disabled={!selectedFiles.length || busy} onClick={handleUpload}>
+            {usageEstimate && (
+              <div className="estimate-box">
+                <strong>本次預估用量</strong>
+                <span>OCR {usageEstimate.ocrPages.toLocaleString()} 頁</span>
+                <span>Language {usageEstimate.languageRecords.toLocaleString()} records</span>
+                <span>GPT {usageEstimate.openAiTokens.toLocaleString()} tokens</span>
+              </div>
+            )}
+            {estimateErrors.length > 0 && <p className="quota-error">{estimateErrors.join(' ')}</p>}
+            <button disabled={!selectedFiles.length || busy || estimateErrors.length > 0} onClick={handleUpload}>
               {busy ? <Loader2 className="spin" size={18} /> : <UploadCloud size={18} />}
               開始查驗
             </button>
@@ -477,11 +547,18 @@ function App() {
 
         </section>}
 
+        {roleView === 'admin' && auth.isAdmin && usage && <section className="usage-grid">
+          <UsageCard label="本日個人查驗" metric={{ used: usage.today.userJobs, limit: usage.dailyUserJobLimit, remaining: Math.max(0, usage.dailyUserJobLimit - usage.today.userJobs) }} unit="次" />
+          <UsageCard label="本月 OCR" metric={usage.monthly.ocrPages} unit="頁" />
+          <UsageCard label="本月 Language" metric={usage.monthly.languageRecords} unit="records" />
+          <UsageCard label="本月 GPT" metric={usage.monthly.openAiTokens} unit="tokens" />
+        </section>}
+
         {roleView === 'admin' && auth.isAdmin && <section className="admin-workspace">
           <div className="panel settings-panel">
             <div className="panel-title">
               <Settings size={22} />
-              <h3>上傳限制</h3>
+              <h3>配額與服務控管</h3>
             </div>
             <label>
               單檔 MB
@@ -501,7 +578,29 @@ function App() {
                 onChange={(event) => settings && setSettings({ ...settings, maxFilesPerUpload: Number(event.target.value) })}
               />
             </label>
-            <button onClick={saveLimit}><CheckCircle2 size={18} /> 保存限制</button>
+            <label>
+              每位使用者每日查驗次數
+              <input type="number" min="1" value={settings?.dailyUserJobLimit ?? 30} onChange={(event) => settings && setSettings({ ...settings, dailyUserJobLimit: Number(event.target.value) })} />
+            </label>
+            <label>
+              每月 OCR 頁數
+              <input type="number" min="0" value={settings?.monthlyOcrPageLimit ?? 10000} onChange={(event) => settings && setSettings({ ...settings, monthlyOcrPageLimit: Number(event.target.value) })} />
+            </label>
+            <label>
+              每月 Language Text Records
+              <input type="number" min="0" value={settings?.monthlyLanguageRecordLimit ?? 10000} onChange={(event) => settings && setSettings({ ...settings, monthlyLanguageRecordLimit: Number(event.target.value) })} />
+            </label>
+            <label>
+              每月 GPT Token
+              <input type="number" min="0" value={settings?.monthlyOpenAiTokenLimit ?? 1000000} onChange={(event) => settings && setSettings({ ...settings, monthlyOpenAiTokenLimit: Number(event.target.value) })} />
+            </label>
+            <div className="switch-list">
+              <Toggle label="OCR 服務" checked={settings?.documentIntelligenceEnabled ?? true} onChange={(checked) => settings && setSettings({ ...settings, documentIntelligenceEnabled: checked })} />
+              <Toggle label="Language PII 服務" checked={settings?.languagePiiEnabled ?? true} onChange={(checked) => settings && setSettings({ ...settings, languagePiiEnabled: checked })} />
+              <Toggle label="GPT 語意分析" checked={settings?.openAiEnabled ?? true} onChange={(checked) => settings && setSettings({ ...settings, openAiEnabled: checked })} />
+              <Toggle label="GPT 僅於已有風險時啟用" checked={settings?.openAiEscalationOnly ?? true} onChange={(checked) => settings && setSettings({ ...settings, openAiEscalationOnly: checked })} />
+            </div>
+            <button onClick={saveLimits}><CheckCircle2 size={18} /> 保存成本控管</button>
           </div>
         </section>}
 
@@ -615,6 +714,28 @@ function Metric({ label, value, tone }: { label: string; value: string; tone: st
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function UsageCard({ label, metric, unit }: { label: string; metric: UsageMetric; unit: string }) {
+  const percent = metric.limit > 0 ? Math.min(100, Math.round(metric.used / metric.limit * 100)) : 100;
+  return (
+    <div className="panel usage-card">
+      <div className="usage-title"><Gauge size={18} /><strong>{label}</strong></div>
+      <span>已用 {metric.used.toLocaleString()} / {metric.limit.toLocaleString()} {unit}</span>
+      <div className="progress"><span style={{ width: `${percent}%` }} /></div>
+      <small>剩餘 {metric.remaining.toLocaleString()} {unit}</small>
+    </div>
+  );
+}
+
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="toggle-row">
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <i aria-hidden="true" />
+    </label>
   );
 }
 
