@@ -34,7 +34,7 @@ def test_blank_secret_update_keeps_existing_secret(client):
 def test_document_intelligence_connection_test_requires_saved_settings(client):
     response = client.post("/api/admin/azure-ai/test", json={"service": "documentIntelligence"})
     assert response.status_code == 400
-    assert "Document Intelligence" in response.get_json()["message"]
+    assert "Azure AI 文件智慧服務" in response.get_json()["message"]
 
 
 def test_document_intelligence_connection_test_uses_prebuilt_read(client):

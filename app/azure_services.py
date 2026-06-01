@@ -48,7 +48,7 @@ def _test_document_intelligence() -> str:
     key = config["azureDocumentIntelligenceKey"]
     api_version = config["azureDocumentIntelligenceApiVersion"]
     if not endpoint or not key:
-        raise ValueError("請先保存 Document Intelligence Endpoint 與 API key。")
+        raise ValueError("請先保存 Azure AI 文件智慧服務 Endpoint 與 API key。")
     image = Image.new("RGB", (360, 100), "white")
     ImageDraw.Draw(image).text((18, 36), "OCR CONNECTION TEST", fill="black")
     content = BytesIO()
@@ -73,11 +73,11 @@ def _test_document_intelligence() -> str:
         poll.raise_for_status()
         payload = poll.json()
         if payload.get("status") == "succeeded":
-            return "Document Intelligence OCR 連線成功，prebuilt-read 已完成測試圖片辨識。"
+            return "Azure AI 文件智慧服務 OCR 連線成功，prebuilt-read 已完成測試圖片辨識。"
         if payload.get("status") == "failed":
-            raise RuntimeError("Document Intelligence OCR 測試失敗。")
+            raise RuntimeError("Azure AI 文件智慧服務 OCR 測試失敗。")
         time.sleep(1)
-    raise TimeoutError("Document Intelligence OCR 連線測試逾時。")
+    raise TimeoutError("Azure AI 文件智慧服務 OCR 連線測試逾時。")
 
 
 def _test_azure_openai() -> None:
@@ -139,7 +139,7 @@ def extract_with_document_intelligence(path: Path) -> list[ExtractedText]:
         if status == "failed":
             raise RuntimeError(json.dumps(payload.get("error", {}), ensure_ascii=False))
         time.sleep(2)
-    raise TimeoutError("Azure Document Intelligence OCR 逾時")
+    raise TimeoutError("Azure AI 文件智慧服務 OCR 逾時")
 
 
 def detect_with_azure_language(text: str, location: str) -> list[Finding]:
