@@ -1,10 +1,6 @@
 name: Deploy to Azure Web App (B1)
 
 on:
-  push:
-    branches:
-      - main
-      - cursor/pii-scanner-be2a
   workflow_dispatch:
 
 env:

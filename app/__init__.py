@@ -54,6 +54,10 @@ def create_app() -> Flask:
             return send_from_directory(app.static_folder, "index.html")
         return jsonify({"name": "school-pii-checker", "status": "frontend_not_built"})
 
+    @app.get("/healthz")
+    def healthz():
+        return jsonify({"status": "ok"})
+
     @app.get("/<path:path>")
     def spa(path: str):
         static_folder = Path(app.static_folder or "")
