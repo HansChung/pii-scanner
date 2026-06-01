@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, KeyRound, Loader2, LogOut, Settings, ShieldCheck, UploadCloud } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, KeyRound, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -84,6 +84,13 @@ type AzureAiForm = {
   azureOpenAiApiVersion: string;
 };
 
+type AzureAiService = 'documentIntelligence' | 'language' | 'openAi';
+
+type AzureAiTestResult = {
+  tone: 'ok' | 'error';
+  message: string;
+};
+
 const api = {
   async me(): Promise<AuthState> {
     const res = await fetch('/api/auth/me');
@@ -113,6 +120,16 @@ const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Azure AI 設定保存失敗');
+    return data;
+  },
+  async testAzureAiService(service: AzureAiService): Promise<{ message: string }> {
+    const res = await fetch('/api/admin/azure-ai/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Azure AI 連線測試失敗');
     return data;
   },
   async upload(files: File[]) {
@@ -159,6 +176,8 @@ function App() {
   const [note, setNote] = useState('');
   const [azureSettings, setAzureSettings] = useState<AzureAiSettings | null>(null);
   const [azureForm, setAzureForm] = useState<AzureAiForm | null>(null);
+  const [testingAzureService, setTestingAzureService] = useState<AzureAiService | null>(null);
+  const [azureTestResults, setAzureTestResults] = useState<Partial<Record<AzureAiService, AzureAiTestResult>>>({});
 
   useEffect(() => {
     api.me()
@@ -275,6 +294,22 @@ function App() {
       setError('Azure AI 設定已保存，新的查驗任務會使用更新後設定');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Azure AI 設定保存失敗');
+    }
+  }
+
+  async function testAzureAiConnection(service: AzureAiService) {
+    setTestingAzureService(service);
+    setAzureTestResults((results) => ({ ...results, [service]: undefined }));
+    try {
+      const result = await api.testAzureAiService(service);
+      setAzureTestResults((results) => ({ ...results, [service]: { tone: 'ok', message: result.message } }));
+    } catch (err) {
+      setAzureTestResults((results) => ({
+        ...results,
+        [service]: { tone: 'error', message: err instanceof Error ? err.message : 'Azure AI 連線測試失敗' },
+      }));
+    } finally {
+      setTestingAzureService(null);
     }
   }
 
@@ -447,6 +482,9 @@ function App() {
                 versionLabel="API version"
                 version={azureForm.azureDocumentIntelligenceApiVersion}
                 onVersion={(value) => setAzureForm({ ...azureForm, azureDocumentIntelligenceApiVersion: value })}
+                onTest={() => testAzureAiConnection('documentIntelligence')}
+                testing={testingAzureService === 'documentIntelligence'}
+                testResult={azureTestResults.documentIntelligence}
               />
               <SecretGroup
                 title="Azure AI Language PII"
@@ -459,6 +497,9 @@ function App() {
                 versionLabel="API version"
                 version={azureForm.azureLanguageApiVersion}
                 onVersion={(value) => setAzureForm({ ...azureForm, azureLanguageApiVersion: value })}
+                onTest={() => testAzureAiConnection('language')}
+                testing={testingAzureService === 'language'}
+                testResult={azureTestResults.language}
               />
               <SecretGroup
                 title="Azure OpenAI"
@@ -471,6 +512,9 @@ function App() {
                 versionLabel="API version"
                 version={azureForm.azureOpenAiApiVersion}
                 onVersion={(value) => setAzureForm({ ...azureForm, azureOpenAiApiVersion: value })}
+                onTest={() => testAzureAiConnection('openAi')}
+                testing={testingAzureService === 'openAi'}
+                testResult={azureTestResults.openAi}
               >
                 <label>
                   Deployment
@@ -544,6 +588,9 @@ function SecretGroup({
   versionLabel,
   version,
   onVersion,
+  onTest,
+  testing,
+  testResult,
   children,
 }: {
   title: string;
@@ -556,6 +603,9 @@ function SecretGroup({
   versionLabel: string;
   version: string;
   onVersion: (value: string) => void;
+  onTest: () => void;
+  testing: boolean;
+  testResult?: AzureAiTestResult;
   children?: ReactNode;
 }) {
   return (
@@ -580,6 +630,11 @@ function SecretGroup({
         <input value={version} onChange={(event) => onVersion(event.target.value)} />
       </label>
       {children}
+      <button className="secondary-button" onClick={onTest} disabled={testing}>
+        {testing ? <Loader2 className="spin" size={18} /> : <PlugZap size={18} />}
+        {testing ? '正在測試' : '測試連線'}
+      </button>
+      {testResult && <p className={`connection-result ${testResult.tone}`}>{testResult.message}</p>}
     </fieldset>
   );
 }

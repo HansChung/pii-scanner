@@ -7,8 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
+from requests import RequestException
 
 from .auth import admin_required, auth_configured, current_user, current_user_name, is_admin, login_required
+from .azure_services import test_azure_ai_service
 from .db import get_db, row_to_dict
 from .scanner import cancel_scan, cleanup_stale_uploads, create_file_hash, now_iso, submit_scan
 from .security import mime_matches_extension, normalize_extension, safe_filename, sniff_mime
@@ -303,6 +305,29 @@ def put_azure_ai_settings():
     _audit(current_user_name(), "azure_ai_settings_updated", "settings", "azure_ai", {})
     get_db().commit()
     return jsonify(public_azure_ai_config())
+
+
+@api.post("/admin/azure-ai/test")
+@admin_required
+def test_azure_ai_settings():
+    service = str((request.get_json(silent=True) or {}).get("service", ""))
+    try:
+        message = test_azure_ai_service(service)
+    except ValueError as exc:
+        return jsonify({"error": "invalid_settings", "message": str(exc)}), 400
+    except (KeyError, RequestException, RuntimeError, TimeoutError):
+        return (
+            jsonify(
+                {
+                    "error": "azure_ai_connection_failed",
+                    "message": "Azure AI 連線失敗，請確認 Endpoint、API key、API version 與服務權限。",
+                }
+            ),
+            502,
+        )
+    _audit(current_user_name(), "azure_ai_connection_tested", "settings", service, {})
+    get_db().commit()
+    return jsonify({"service": service, "status": "ok", "message": message})
 
 
 def _effective_settings() -> dict:

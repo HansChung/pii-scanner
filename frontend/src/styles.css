@@ -393,6 +393,20 @@ button:disabled {
   color: var(--ink);
 }
 
+.connection-result {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.connection-result.ok {
+  color: #137547;
+}
+
+.connection-result.error {
+  color: var(--tku-red);
+}
+
 .admin-actions {
   margin-top: 14px;
   display: flex;
