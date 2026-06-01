@@ -29,6 +29,7 @@ from .secret_settings import (
 )
 from .usage_control import effective_settings, estimate_files, job_usage, quota_check, usage_summary
 from .url_security import UnsafeUrlError, validate_public_url
+from pii_scanner.whitelist import WhitelistConfig, list_known_detectors, load_whitelist, save_whitelist
 
 api = Blueprint("api", __name__)
 
@@ -444,6 +445,30 @@ def get_usage_summary():
     return jsonify(usage_summary(current_user_name()))
 
 
+@api.get("/admin/whitelist")
+@admin_required
+def get_whitelist():
+    config = load_whitelist(force_reload=True)
+    return jsonify({"config": config.to_dict(), "detectors": list_known_detectors()})
+
+
+@api.put("/admin/whitelist")
+@admin_required
+def put_whitelist():
+    payload = request.get_json(silent=True) or {}
+    try:
+        config = WhitelistConfig.from_dict(payload)
+        _validate_whitelist(config)
+        save_whitelist(config)
+    except (TypeError, ValueError, KeyError) as exc:
+        return jsonify({"error": "invalid_whitelist", "message": f"白名單格式錯誤：{exc}"}), 400
+    except OSError as exc:
+        return jsonify({"error": "whitelist_write_failed", "message": str(exc)}), 500
+    _audit(current_user_name(), "whitelist_updated", "settings", "whitelist", {})
+    get_db().commit()
+    return jsonify({"config": config.to_dict(), "detectors": list_known_detectors()})
+
+
 @api.get("/admin/azure-ai")
 @admin_required
 def get_azure_ai_settings():
@@ -505,3 +530,14 @@ def _audit(actor: str, action: str, target_type: str, target_id: str, metadata: 
             datetime.now(timezone.utc).isoformat(),
         ),
     )
+
+
+def _validate_whitelist(config: WhitelistConfig) -> None:
+    known_detectors = set(list_known_detectors())
+    unknown = set(config.global_disabled_detectors) - known_detectors
+    for rule in config.domain_rules:
+        if not rule.domain.strip() or "://" in rule.domain or "/" in rule.domain:
+            raise ValueError("網域規則只能填寫網域，例如 tku.edu.tw。")
+        unknown.update(set(rule.disabled_detectors) - known_detectors)
+    if unknown:
+        raise ValueError(f"不支援的偵測器：{', '.join(sorted(unknown))}")
