@@ -20,7 +20,11 @@ def _msal_app() -> msal.ConfidentialClientApplication:
 
 
 def _redirect_uri() -> str:
-    return url_for("auth.callback", _external=True)
+    return current_app.config["MS_REDIRECT_URI"] or url_for(
+        "auth.callback",
+        _external=True,
+        _scheme="https",
+    )
 
 
 def auth_configured() -> bool:
@@ -129,5 +133,5 @@ def callback():
 @auth.get("/logout")
 def logout():
     session.clear()
-    post_logout = url_for("index", _external=True)
+    post_logout = url_for("index", _external=True, _scheme="https")
     return redirect(f"{current_app.config['MS_AUTHORITY']}/oauth2/v2.0/logout?post_logout_redirect_uri={post_logout}")

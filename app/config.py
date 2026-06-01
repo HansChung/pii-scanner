@@ -32,6 +32,7 @@ class Config:
         self.MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
         self.MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "")
         self.MS_REDIRECT_PATH = os.getenv("MS_REDIRECT_PATH", "/auth/callback")
+        self.MS_REDIRECT_URI = os.getenv("MS_REDIRECT_URI", "")
         self.MS_AUTHORITY = os.getenv(
             "MS_AUTHORITY",
             f"https://login.microsoftonline.com/{self.MS_TENANT_ID}",
