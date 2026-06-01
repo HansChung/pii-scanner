@@ -11,7 +11,7 @@ import re
 import time
 from collections import deque
 from pathlib import Path
-from typing import Iterable, List, Optional, Set
+from typing import Callable, Iterable, List, Optional, Set
 from urllib.parse import unquote, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -19,7 +19,7 @@ from ..detectors import detect_in_text
 from ..detectors.base import BaseDetector, Finding
 from .archive import is_zip_archive
 from .document_reader import DOCUMENT_SUFFIXES, DocumentReadError, extract_document_segments
-from .file_scanner import MAX_FILE_BYTES, _prefix_source, scan_bytes
+from .file_scanner import MAX_FILE_BYTES, scan_bytes
 from .format_sniff import sniff_document_suffix
 from .scan_issue import ScanIssue
 
@@ -307,13 +307,16 @@ def fetch_url_text(
     timeout: float = 10.0,
     headers: Optional[dict] = None,
     verify_tls: bool = True,
+    url_validator: Optional[Callable[[str], None]] = None,
 ) -> str:
     """抓取 URL 並回傳純文字（供 AI 增強；含 PDF/Word 等文件文字擷取）。"""
     _check_runtime()
     h = dict(DEFAULT_HEADERS)
     if headers:
         h.update(headers)
-    resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
+    resp = _request_get(
+        url, headers=h, timeout=timeout, verify_tls=verify_tls, url_validator=url_validator
+    )
     resp.raise_for_status()
     content_type = resp.headers.get("Content-Type", "")
     data = resp.content
@@ -338,6 +341,7 @@ def scan_url(
     issues: Optional[List[ScanIssue]] = None,
     preview: Optional[dict] = None,
     stats: Optional[dict] = None,
+    url_validator: Optional[Callable[[str], None]] = None,
 ) -> List[Finding]:
     """抓取單一 URL 並掃描（HTML / PDF / Word / Excel / ZIP / CSV / JSON 等）。"""
     _check_runtime()
@@ -345,7 +349,9 @@ def scan_url(
     if headers:
         h.update(headers)
     try:
-        resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
+        resp = _request_get(
+            url, headers=h, timeout=timeout, verify_tls=verify_tls, url_validator=url_validator
+        )
         resp.raise_for_status()
     except Exception as exc:  # noqa: BLE001
         if issues is not None:
@@ -425,6 +431,7 @@ def discover_sitemap_urls(
     verify_tls: bool = True,
     max_urls: int = 500,
     max_sitemap_files: int = 20,
+    url_validator: Optional[Callable[[str], None]] = None,
 ) -> List[str]:
     """嘗試 ``/sitemap.xml`` 與 ``/sitemap_index.xml``，遞迴解析索引型 sitemap。
 
@@ -449,7 +456,9 @@ def discover_sitemap_urls(
             continue
         seen_sitemaps.add(sm)
         try:
-            resp = requests.get(sm, headers=h, timeout=timeout, verify=verify_tls)
+            resp = _request_get(
+                sm, headers=h, timeout=timeout, verify_tls=verify_tls, url_validator=url_validator
+            )
         except Exception:  # noqa: BLE001
             continue
         if resp.status_code != 200 or not resp.text.strip():
@@ -491,6 +500,7 @@ def scan_site(
     stats: Optional[dict] = None,
     preview: Optional[dict] = None,
     use_sitemap: bool = False,
+    url_validator: Optional[Callable[[str], None]] = None,
 ) -> List[Finding]:
     """以 BFS 走訪同網域連結並掃描每個頁面與可下載文件。
 
@@ -524,6 +534,7 @@ def scan_site(
             sm_urls = discover_sitemap_urls(
                 start_url, timeout=timeout, headers=h, verify_tls=verify_tls,
                 max_urls=max(max_pages * 4, 200),
+                url_validator=url_validator,
             )
         except Exception:  # noqa: BLE001
             sm_urls = []
@@ -540,13 +551,17 @@ def scan_site(
         if url in visited:
             continue
         visited.add(url)
+        if url_validator:
+            url_validator(url)
         if respect_robots and not _allowed_by_robots(url, user_agent, robots_cache):
             log.info("robots.txt 拒絕掃描 %s", url)
             if issues is not None:
                 issues.append(ScanIssue(url, "robots.txt 拒絕掃描"))
             continue
         try:
-            resp = requests.get(url, headers=h, timeout=timeout, verify=verify_tls)
+            resp = _request_get(
+                url, headers=h, timeout=timeout, verify_tls=verify_tls, url_validator=url_validator
+            )
             resp.raise_for_status()
         except Exception as exc:  # noqa: BLE001
             log.warning("抓取 %s 失敗：%s", url, exc)
@@ -608,3 +623,31 @@ def scan_site(
         stats["bytes_total"] = bytes_total
         stats["start_url"] = start_url
     return findings
+
+
+def _request_get(
+    url: str,
+    *,
+    headers: dict,
+    timeout: float,
+    verify_tls: bool,
+    url_validator: Optional[Callable[[str], None]],
+):
+    current_url = url
+    for _ in range(6):
+        if url_validator:
+            url_validator(current_url)
+        response = requests.get(
+            current_url,
+            headers=headers,
+            timeout=timeout,
+            verify=verify_tls,
+            allow_redirects=False,
+        )
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("Location")
+        if not location:
+            return response
+        current_url = urljoin(current_url, location)
+    raise RuntimeError("網站重新導向次數過多")

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, Gauge, KeyRound, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud, UserRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, Gauge, Globe2, KeyRound, Link, Loader2, LogOut, PlugZap, Settings, ShieldCheck, UploadCloud, UserRound } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -113,6 +113,8 @@ type AzureAiForm = {
 
 type AzureAiService = 'documentIntelligence' | 'language' | 'openAi';
 type RoleView = 'user' | 'admin';
+type ScanSource = 'file' | 'website';
+type WebsiteMode = 'url' | 'site';
 
 type AzureAiTestResult = {
   tone: 'ok' | 'error';
@@ -180,6 +182,16 @@ const api = {
     if (!res.ok) throw new Error(data.message || '上傳失敗');
     return data as { jobId: string; status: string };
   },
+  async scanWebsite(payload: { url: string; mode: WebsiteMode; maxPages: number; maxDepth: number; useSitemap: boolean }) {
+    const res = await fetch('/api/sites/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || '網站查驗失敗');
+    return data as { jobId: string; status: string };
+  },
   async job(jobId: string): Promise<Job> {
     const res = await fetch(`/api/jobs/${jobId}`);
     return res.json();
@@ -223,6 +235,12 @@ function App() {
   const [usageEstimate, setUsageEstimate] = useState<UsageEstimate | null>(null);
   const [estimateErrors, setEstimateErrors] = useState<string[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [scanSource, setScanSource] = useState<ScanSource>('file');
+  const [websiteMode, setWebsiteMode] = useState<WebsiteMode>('url');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [websiteMaxPages, setWebsiteMaxPages] = useState(10);
+  const [websiteMaxDepth, setWebsiteMaxDepth] = useState(1);
+  const [websiteUseSitemap, setWebsiteUseSitemap] = useState(false);
 
   useEffect(() => {
     api.me()
@@ -315,6 +333,28 @@ function App() {
       setJob(await api.job(result.jobId));
     } catch (err) {
       setError(err instanceof Error ? err.message : '上傳失敗');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleWebsiteScan() {
+    setError('');
+    setBusy(true);
+    setFindings([]);
+    setJob(null);
+    try {
+      const result = await api.scanWebsite({
+        url: websiteUrl,
+        mode: websiteMode,
+        maxPages: websiteMaxPages,
+        maxDepth: websiteMaxDepth,
+        useSitemap: websiteUseSitemap,
+      });
+      setJobId(result.jobId);
+      setJob(await api.job(result.jobId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '網站查驗失敗');
     } finally {
       setBusy(false);
     }
@@ -465,41 +505,76 @@ function App() {
         {roleView === 'user' && <section className="grid user-workspace-grid">
           <div className="panel upload-panel">
             <div className="panel-title">
-              <UploadCloud size={22} />
-              <h3>上傳查驗</h3>
+              {scanSource === 'file' ? <UploadCloud size={22} /> : <Globe2 size={22} />}
+              <h3>{scanSource === 'file' ? '上傳查驗' : '網站查驗'}</h3>
             </div>
-            <label className="dropzone">
-              <input
-                type="file"
-                multiple
-                onChange={(event) => setSelectedFiles(Array.from(event.target.files || []))}
-              />
-              <span>選擇 PDF、Office、CSV、TXT 或圖片</span>
-              <small>
-                單檔 {settings?.maxFileMb ?? 25} MB，單次 {settings?.maxFilesPerUpload ?? 5} 個檔案
-              </small>
-            </label>
-            <div className="file-list">
-              {selectedFiles.map((file) => (
-                <div key={file.name}>
-                  <span>{file.name}</span>
-                  <strong>{(file.size / 1024 / 1024).toFixed(2)} MB</strong>
+            <div className="mode-switch" aria-label="查驗來源">
+              <button className={scanSource === 'file' ? 'active' : ''} onClick={() => setScanSource('file')}>
+                <UploadCloud size={16} /> 檔案
+              </button>
+              <button className={scanSource === 'website' ? 'active' : ''} onClick={() => setScanSource('website')}>
+                <Globe2 size={16} /> 網站
+              </button>
+            </div>
+            {scanSource === 'file' ? (
+              <>
+                <label className="dropzone">
+                  <input
+                    type="file"
+                    multiple
+                    onChange={(event) => setSelectedFiles(Array.from(event.target.files || []))}
+                  />
+                  <span>選擇 PDF、Office、CSV、TXT 或圖片</span>
+                  <small>
+                    單檔 {settings?.maxFileMb ?? 25} MB，單次 {settings?.maxFilesPerUpload ?? 5} 個檔案
+                  </small>
+                </label>
+                <div className="file-list">
+                  {selectedFiles.map((file) => (
+                    <div key={file.name}>
+                      <span>{file.name}</span>
+                      <strong>{(file.size / 1024 / 1024).toFixed(2)} MB</strong>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {usageEstimate && (
-              <div className="estimate-box">
-                <strong>本次預估用量</strong>
-                <span>OCR {usageEstimate.ocrPages.toLocaleString()} 頁</span>
-                <span>Language {usageEstimate.languageRecords.toLocaleString()} records</span>
-                <span>GPT {usageEstimate.openAiTokens.toLocaleString()} tokens</span>
+                {usageEstimate && (
+                  <div className="estimate-box">
+                    <strong>本次預估用量</strong>
+                    <span>OCR {usageEstimate.ocrPages.toLocaleString()} 頁</span>
+                    <span>Language {usageEstimate.languageRecords.toLocaleString()} records</span>
+                    <span>GPT {usageEstimate.openAiTokens.toLocaleString()} tokens</span>
+                  </div>
+                )}
+                {estimateErrors.length > 0 && <p className="quota-error">{estimateErrors.join(' ')}</p>}
+                <button disabled={!selectedFiles.length || busy || estimateErrors.length > 0} onClick={handleUpload}>
+                  {busy ? <Loader2 className="spin" size={18} /> : <UploadCloud size={18} />}
+                  開始查驗
+                </button>
+              </>
+            ) : (
+              <div className="website-form">
+                <div className="mode-switch compact-switch" aria-label="網站查驗模式">
+                  <button className={websiteMode === 'url' ? 'active' : ''} onClick={() => setWebsiteMode('url')}>單一網址</button>
+                  <button className={websiteMode === 'site' ? 'active' : ''} onClick={() => setWebsiteMode('site')}>整站掃描</button>
+                </div>
+                <label>
+                  公開網站網址
+                  <div className="input-with-icon"><Link size={17} /><input value={websiteUrl} onChange={(event) => setWebsiteUrl(event.target.value)} placeholder="https://www.example.edu.tw/" /></div>
+                </label>
+                {websiteMode === 'site' && (
+                  <div className="website-options">
+                    <label>最多頁數<input type="number" min="1" max="30" value={websiteMaxPages} onChange={(event) => setWebsiteMaxPages(Number(event.target.value))} /></label>
+                    <label>連結深度<input type="number" min="0" max="2" value={websiteMaxDepth} onChange={(event) => setWebsiteMaxDepth(Number(event.target.value))} /></label>
+                    <label className="check-row"><input type="checkbox" checked={websiteUseSitemap} onChange={(event) => setWebsiteUseSitemap(event.target.checked)} /> 使用 sitemap.xml 擴充掃描範圍</label>
+                  </div>
+                )}
+                <p className="form-note">只掃描公開網址；整站模式限制同網域並遵守 robots.txt。</p>
+                <button disabled={!websiteUrl.trim() || busy} onClick={handleWebsiteScan}>
+                  {busy ? <Loader2 className="spin" size={18} /> : <Globe2 size={18} />}
+                  開始網站查驗
+                </button>
               </div>
             )}
-            {estimateErrors.length > 0 && <p className="quota-error">{estimateErrors.join(' ')}</p>}
-            <button disabled={!selectedFiles.length || busy || estimateErrors.length > 0} onClick={handleUpload}>
-              {busy ? <Loader2 className="spin" size={18} /> : <UploadCloud size={18} />}
-              開始查驗
-            </button>
           </div>
 
           <div className="panel">

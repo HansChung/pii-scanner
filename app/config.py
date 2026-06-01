@@ -32,6 +32,12 @@ class Config:
         self.MONTHLY_LANGUAGE_RECORD_LIMIT = int(os.getenv("MONTHLY_LANGUAGE_RECORD_LIMIT", "10000"))
         self.MONTHLY_OPENAI_TOKEN_LIMIT = int(os.getenv("MONTHLY_OPENAI_TOKEN_LIMIT", "1000000"))
         self.SCHOOL_TIMEZONE = os.getenv("SCHOOL_TIMEZONE", "Asia/Taipei")
+        self.WEBSITE_SCAN_MAX_PAGES = int(os.getenv("WEBSITE_SCAN_MAX_PAGES", "30"))
+        self.WEBSITE_SCAN_MAX_DEPTH = int(os.getenv("WEBSITE_SCAN_MAX_DEPTH", "2"))
+        self.WEBSITE_SCAN_DELAY_SECONDS = float(os.getenv("WEBSITE_SCAN_DELAY_SECONDS", "0.3"))
+        self.WEBSITE_SCAN_HTTP_TIMEOUT_SECONDS = float(
+            os.getenv("WEBSITE_SCAN_HTTP_TIMEOUT_SECONDS", "10")
+        )
         self.AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "true").lower() not in {"0", "false", "no"}
         self.MS_TENANT_ID = os.getenv("MS_TENANT_ID", "common")
         self.MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
