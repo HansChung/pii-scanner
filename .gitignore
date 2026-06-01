@@ -1,0 +1,12 @@
+.venv/
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+instance/
+tmp/
+frontend/node_modules/
+frontend/dist/
+static/app/
