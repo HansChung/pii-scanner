@@ -1,0 +1,5 @@
+# Azure App Service 部署設定
+# Oryx 會自動偵測 requirements.txt 並安裝依賴
+
+[config]
+SCM_DO_BUILD_DURING_DEPLOYMENT=true
