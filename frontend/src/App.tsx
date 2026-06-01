@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, FileSearch, KeyRound, Loader2, LogOut, Settings, ShieldCheck, UploadCloud } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, KeyRound, Loader2, LogOut, Settings, ShieldCheck, UploadCloud } from 'lucide-react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -131,6 +131,12 @@ const api = {
     const res = await fetch(`/api/jobs/${jobId}/findings`);
     return res.json();
   },
+  async cancel(jobId: string) {
+    const res = await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || '取消任務失敗');
+    return data as { jobId: string; status: string };
+  },
   async review(jobId: string, decision: string, note: string) {
     const res = await fetch(`/api/jobs/${jobId}/review`, {
       method: 'POST',
@@ -237,6 +243,16 @@ function App() {
     await api.review(jobId, decision, note);
     setNote('');
     setError('審核紀錄已保存');
+  }
+
+  async function cancelJob() {
+    if (!jobId) return;
+    try {
+      await api.cancel(jobId);
+      setJob(await api.job(jobId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '取消任務失敗');
+    }
   }
 
   async function saveAzureAiSettings() {
@@ -375,6 +391,11 @@ function App() {
                     </div>
                   ))}
                 </div>
+                {['queued', 'processing', 'cancelling'].includes(job.status) && (
+                  <button className="secondary-button" onClick={cancelJob} disabled={job.status === 'cancelling'}>
+                    <CircleStop size={18} /> {job.status === 'cancelling' ? '正在取消' : '取消任務'}
+                  </button>
+                )}
               </>
             ) : (
               <p className="empty">尚未建立查驗任務。</p>

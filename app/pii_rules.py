@@ -14,6 +14,24 @@ class Rule:
     recommendation: str
 
 
+TAIWAN_ID_LETTER_VALUE = {
+    "A": 10, "B": 11, "C": 12, "D": 13, "E": 14, "F": 15, "G": 16, "H": 17,
+    "I": 34, "J": 18, "K": 19, "L": 20, "M": 21, "N": 22, "O": 35, "P": 23,
+    "Q": 24, "R": 25, "S": 26, "T": 27, "U": 28, "V": 29, "W": 32, "X": 30,
+    "Y": 31, "Z": 33,
+}
+TAIWAN_ID_WEIGHTS = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1]
+
+
+def validate_taiwan_id(value: str) -> bool:
+    value = value.upper()
+    if not re.fullmatch(r"[A-Z][12]\d{8}", value):
+        return False
+    letter = TAIWAN_ID_LETTER_VALUE[value[0]]
+    numbers = [letter // 10, letter % 10] + [int(char) for char in value[1:]]
+    return sum(number * weight for number, weight in zip(numbers, TAIWAN_ID_WEIGHTS)) % 10 == 0
+
+
 RULES = [
     Rule(
         "TaiwanNationalId",
@@ -98,6 +116,8 @@ def detect_with_rules(text: str, location: str) -> list[Finding]:
     for rule in RULES:
         for match in rule.pattern.finditer(text):
             value = match.group(0)
+            if rule.category == "TaiwanNationalId" and not validate_taiwan_id(value):
+                continue
             key = (rule.category, value, location)
             if key in seen:
                 continue
@@ -114,4 +134,3 @@ def detect_with_rules(text: str, location: str) -> list[Finding]:
                 )
             )
     return findings
-

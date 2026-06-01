@@ -10,6 +10,7 @@ from .auth import auth
 from .config import Config
 from .db import close_db, init_db
 from .routes import api
+from .scanner import cleanup_stale_uploads
 
 
 def create_app() -> Flask:
@@ -27,6 +28,7 @@ def create_app() -> Flask:
 
     with app.app_context():
         init_db()
+        cleanup_stale_uploads()
 
     app.teardown_appcontext(close_db)
     app.register_blueprint(api, url_prefix="/api")

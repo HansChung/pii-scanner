@@ -181,6 +181,15 @@ nav a.active {
   background: #dedede;
 }
 
+.secondary-button {
+  background: #eeeeee;
+  color: var(--ink);
+}
+
+.secondary-button:hover {
+  background: #dedede;
+}
+
 input:focus {
   border-color: var(--tku-blue-dark);
   outline: 3px solid rgba(72, 184, 212, .2);

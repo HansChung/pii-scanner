@@ -10,7 +10,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from .auth import admin_required, auth_configured, current_user, current_user_name, is_admin, login_required
 from .db import get_db, row_to_dict
-from .scanner import create_file_hash, now_iso, submit_scan
+from .scanner import cancel_scan, cleanup_stale_uploads, create_file_hash, now_iso, submit_scan
 from .security import mime_matches_extension, normalize_extension, safe_filename, sniff_mime
 from .secret_settings import (
     clear_azure_secret,
@@ -43,6 +43,7 @@ def auth_me():
 @api.post("/files/check")
 @login_required
 def upload_and_check():
+    cleanup_stale_uploads()
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "missing_files", "message": "請選擇要查驗的檔案。"}), 400
@@ -164,6 +165,14 @@ def get_job(job_id: str):
     ]
     job["files"] = files
     return jsonify(job)
+
+
+@api.post("/jobs/<job_id>/cancel")
+@login_required
+def cancel_job(job_id: str):
+    if not cancel_scan(job_id, current_user_name()):
+        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+    return jsonify({"jobId": job_id, "status": "cancelling"})
 
 
 @api.get("/jobs/<job_id>/findings")

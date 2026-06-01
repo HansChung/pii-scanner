@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import current_app
@@ -21,9 +22,18 @@ from .azure_services import (
 from .db import get_db
 from .extractors import extract_text
 from .models import Finding
+from .office_images import cleanup_embedded_images, extract_embedded_images
 from .pii_rules import detect_with_rules
 
 executor = ThreadPoolExecutor(max_workers=2)
+
+
+class ScanCancelled(Exception):
+    pass
+
+
+class ScanTimedOut(Exception):
+    pass
 
 
 def now_iso() -> str:
@@ -46,21 +56,51 @@ def _run_with_context(app, job_id: str, upload_records: list[dict[str, str]]) ->
 def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
     db = get_db()
     temp_paths = [Path(record["path"]) for record in upload_records]
+    deadline = time.monotonic() + current_app.config["JOB_TIMEOUT_SECONDS"]
     try:
+        _ensure_active(job_id, deadline)
         _update_job(job_id, "processing", 10, "開始抽取文字與 OCR")
         all_findings: list[tuple[str, Finding]] = []
         for index, record in enumerate(upload_records, start=1):
+            _ensure_active(job_id, deadline)
             file_id = record["file_id"]
             path = Path(record["path"])
             extension = record["extension"]
             chunks = extract_text(path, extension)
             if extension in {".pdf", ".jpg", ".jpeg", ".png"} and document_intelligence_enabled():
                 try:
+                    _ensure_active(job_id, deadline)
                     ocr_chunks = extract_with_document_intelligence(path)
                     chunks.extend(ocr_chunks)
+                except (ScanCancelled, ScanTimedOut):
+                    raise
                 except Exception as exc:
                     _set_file_error(file_id, f"OCR 失敗：{exc}")
+            if extension in {".docx", ".pptx", ".xlsx"} and document_intelligence_enabled():
+                images = extract_embedded_images(
+                    path,
+                    extension,
+                    max_images=current_app.config["OFFICE_OCR_MAX_IMAGES"],
+                    max_image_bytes=current_app.config["OFFICE_OCR_MAX_IMAGE_MB"] * 1024 * 1024,
+                )
+                try:
+                    for image in images:
+                        _ensure_active(job_id, deadline)
+                        for chunk in extract_with_document_intelligence(image.path):
+                            chunks.append(
+                                type(chunk)(
+                                    text=chunk.text,
+                                    location=f"{image.location} / {chunk.location}",
+                                )
+                            )
+                except (ScanCancelled, ScanTimedOut):
+                    raise
+                except Exception as exc:
+                    _set_file_error(file_id, f"Office 內嵌圖片 OCR 失敗：{exc}")
+                finally:
+                    cleanup_embedded_images(images)
             for chunk in chunks:
+                _ensure_active(job_id, deadline)
                 all_findings.extend((file_id, finding) for finding in detect_with_rules(chunk.text, chunk.location))
                 if language_pii_enabled():
                     try:
@@ -68,6 +108,8 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                             (file_id, finding)
                             for finding in detect_with_azure_language(chunk.text, chunk.location)
                         )
+                    except (ScanCancelled, ScanTimedOut):
+                        raise
                     except Exception as exc:
                         _set_file_error(file_id, f"Azure Language PII 失敗：{exc}")
                 if azure_openai_enabled():
@@ -76,6 +118,8 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                             (file_id, finding)
                             for finding in detect_school_context_with_openai(chunk.text, chunk.location)
                         )
+                    except (ScanCancelled, ScanTimedOut):
+                        raise
                     except Exception as exc:
                         _set_file_error(file_id, f"Azure OpenAI 失敗：{exc}")
             _update_job(job_id, "processing", 10 + int(index / len(upload_records) * 75), "查驗中")
@@ -119,6 +163,10 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
         )
         _audit("system", "scan_completed", "scan_job", job_id, {"findings": len(deduped)})
         db.commit()
+    except ScanCancelled:
+        _finish_stopped_job(job_id, "cancelled", "任務已取消", "scan_cancelled")
+    except ScanTimedOut:
+        _finish_stopped_job(job_id, "timed_out", "查驗逾時，已停止並清除暫存檔", "scan_timed_out")
     except Exception as exc:
         db.execute(
             """
@@ -139,6 +187,50 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                     path.unlink()
         for path in {item.parent for item in temp_paths}:
             shutil.rmtree(path, ignore_errors=True)
+
+
+def cancel_scan(job_id: str, actor: str) -> bool:
+    db = get_db()
+    row = db.execute("SELECT status FROM scan_jobs WHERE id = ?", (job_id,)).fetchone()
+    if not row:
+        return False
+    if row["status"] in {"completed", "failed", "cancelled", "timed_out"}:
+        return True
+    db.execute(
+        "UPDATE scan_jobs SET status = 'cancelling', message = ?, updated_at = ? WHERE id = ?",
+        ("正在取消任務", now_iso(), job_id),
+    )
+    _audit(actor, "scan_cancel_requested", "scan_job", job_id, {})
+    db.commit()
+    return True
+
+
+def cleanup_stale_uploads() -> int:
+    upload_root = Path(current_app.config["TEMP_UPLOAD_DIR"])
+    upload_root.mkdir(parents=True, exist_ok=True)
+    threshold = datetime.now(timezone.utc) - timedelta(
+        seconds=current_app.config["TEMP_UPLOAD_TTL_SECONDS"]
+    )
+    removed = 0
+    for path in upload_root.iterdir():
+        if not path.is_dir():
+            continue
+        modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        if modified >= threshold:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+        db = get_db()
+        db.execute(
+            """
+            UPDATE scan_jobs
+            SET status = 'timed_out', progress = 100, message = ?, updated_at = ?, completed_at = ?
+            WHERE id = ? AND status IN ('queued', 'processing', 'cancelling')
+            """,
+            ("暫存檔逾期，任務已停止", now_iso(), now_iso(), path.name),
+        )
+        db.commit()
+    return removed
 
 
 def create_file_hash(path: Path) -> str:
@@ -183,6 +275,29 @@ def _update_job(job_id: str, status: str, progress: int, message: str) -> None:
 def _set_file_error(file_id: str, message: str) -> None:
     db = get_db()
     db.execute("UPDATE files SET error = ? WHERE id = ?", (message, file_id))
+    db.commit()
+
+
+def _ensure_active(job_id: str, deadline: float) -> None:
+    if time.monotonic() > deadline:
+        raise ScanTimedOut()
+    row = get_db().execute("SELECT status FROM scan_jobs WHERE id = ?", (job_id,)).fetchone()
+    if row and row["status"] in {"cancelling", "cancelled"}:
+        raise ScanCancelled()
+
+
+def _finish_stopped_job(job_id: str, status: str, message: str, audit_action: str) -> None:
+    db = get_db()
+    db.execute(
+        """
+        UPDATE scan_jobs
+        SET status = ?, progress = 100, message = ?, updated_at = ?, completed_at = ?
+        WHERE id = ?
+        """,
+        (status, message, now_iso(), now_iso(), job_id),
+    )
+    db.execute("UPDATE files SET status = ? WHERE job_id = ?", (status, job_id))
+    _audit("system", audit_action, "scan_job", job_id, {})
     db.commit()
 
 

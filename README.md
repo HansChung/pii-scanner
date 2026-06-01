@@ -389,6 +389,9 @@ pytest
 - PDF、DOCX、PPTX、XLSX、CSV、TXT、JPG、PNG 上傳。
 - 預設單檔 25 MB、單次 5 檔；超過限制時提示使用者自行分檔。
 - 原始檔只進入暫存目錄，任務完成或失敗後刪除。
+- 支援使用者取消任務、每個任務 deadline 與啟動/上傳前過期暫存檔清理。
+- DOCX、PPTX、XLSX 內嵌圖片可送 Azure Document Intelligence OCR。
+- 本機台灣身分證規則會執行加權檢查碼驗證，降低格式誤判。
 - Azure Document Intelligence OCR、Azure AI Language PII 與 Azure OpenAI `gpt-5-mini` adapter。
 - 管理後台可填 Azure AI endpoint 與 API key；key 加密保存且不會明文回傳前端。
 
@@ -406,6 +409,15 @@ AUTH_REQUIRED=false flask --app app:create_app run --debug
 ```
 
 正式啟用 Microsoft 365 登入前，需在 App Service 設定 `FLASK_SECRET_KEY`、`MS_TENANT_ID`、`MS_CLIENT_ID`、`MS_CLIENT_SECRET` 與 `ADMIN_EMAILS`。
+
+可選的掃描安全限制：
+
+```bash
+JOB_TIMEOUT_SECONDS=180
+TEMP_UPLOAD_TTL_SECONDS=3600
+OFFICE_OCR_MAX_IMAGES=30
+OFFICE_OCR_MAX_IMAGE_MB=10
+```
 
 ## 授權
 
