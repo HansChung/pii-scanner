@@ -537,8 +537,12 @@ function App() {
                 </button>
               </div>
             )}
-            {roleView === 'user' && (
-              <a className="report-link" href={jobId ? `/api/jobs/${jobId}/report` : '#'}>下載報告 JSON</a>
+            {roleView === 'user' && jobId && (
+              <div className="report-downloads" aria-label="下載查驗報告">
+                <a className="report-link" href={`/api/jobs/${jobId}/report.pdf`}>下載 PDF</a>
+                <a className="report-link" href={`/api/jobs/${jobId}/report.xlsx`}>下載 Excel</a>
+                <a className="icon-link" href={`/api/jobs/${jobId}/report`}>JSON</a>
+              </div>
             )}
             {auth.authRequired && <a className="icon-link" href="/auth/logout"><LogOut size={18} />登出</a>}
           </div>

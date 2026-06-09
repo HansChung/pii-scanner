@@ -157,6 +157,12 @@ nav button.active {
   font-size: 14px;
 }
 
+.report-downloads {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .role-switch {
   display: flex;
   padding: 3px;

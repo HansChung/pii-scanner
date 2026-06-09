@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 from requests import RequestException
 
 from .auth import admin_required, auth_configured, current_user, current_user_name, is_admin, login_required
@@ -27,6 +27,7 @@ from .secret_settings import (
     public_azure_ai_config,
     update_azure_ai_config,
 )
+from .report_export import build_excel, build_pdf, collect_report
 from .usage_control import effective_settings, estimate_files, job_usage, quota_check, usage_summary
 from .url_security import UnsafeUrlError, validate_public_url
 from pii_scanner.whitelist import WhitelistConfig, list_known_detectors, load_whitelist, save_whitelist
@@ -346,32 +347,47 @@ def review_job(job_id: str):
 @api.get("/jobs/<job_id>/report")
 @login_required
 def report(job_id: str):
-    db = get_db()
-    job = row_to_dict(db.execute("SELECT * FROM scan_jobs WHERE id = ?", (job_id,)).fetchone())
-    if not job:
+    data = collect_report(job_id)
+    if data is None:
         return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
-    findings = [
-        dict(row)
-        for row in db.execute(
-            """
-            SELECT files.original_name, findings.category, findings.risk_level, findings.confidence,
-                   findings.masked_text, findings.location, findings.recommendation, findings.detector
-            FROM findings
-            JOIN files ON files.id = findings.file_id
-            WHERE findings.job_id = ?
-            ORDER BY findings.risk_level, files.original_name
-            """,
-            (job_id,),
-        ).fetchall()
-    ]
-    reviews = [
-        dict(row)
-        for row in db.execute(
-            "SELECT decision, reviewer, note, created_at FROM reviews WHERE job_id = ? ORDER BY created_at",
-            (job_id,),
-        ).fetchall()
-    ]
-    return jsonify({"job": job, "findings": findings, "reviews": reviews, "aiUsage": job_usage(job_id)})
+    return jsonify(data)
+
+
+def _report_filename(job_id: str, extension: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"pii-report-{job_id[:8]}-{stamp}.{extension}"
+
+
+@api.get("/jobs/<job_id>/report.xlsx")
+@login_required
+def report_excel(job_id: str):
+    data = collect_report(job_id)
+    if data is None:
+        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+    payload = build_excel(data)
+    return Response(
+        payload,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_report_filename(job_id, "xlsx")}"'
+        },
+    )
+
+
+@api.get("/jobs/<job_id>/report.pdf")
+@login_required
+def report_pdf(job_id: str):
+    data = collect_report(job_id)
+    if data is None:
+        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+    payload = build_pdf(data)
+    return Response(
+        payload,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_report_filename(job_id, "pdf")}"'
+        },
+    )
 
 
 @api.get("/admin/settings")
