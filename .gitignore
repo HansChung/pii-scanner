@@ -18,3 +18,4 @@ frontend/dist/
 static/app/
 report.html
 report.json
+output/

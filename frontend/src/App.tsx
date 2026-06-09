@@ -546,6 +546,13 @@ function App() {
 
         {error && <div className="notice">{error}</div>}
 
+        {roleView === 'user' && (
+          <div className="advisory">
+            <AlertTriangle size={18} />
+            <p>本系統僅為<strong>輔助查驗</strong>工具，可能有漏判或誤判。承辦人員仍須自行仔細查驗，並對最終結果負責。</p>
+          </div>
+        )}
+
         {roleView === 'user' && <section className="grid user-workspace-grid">
           <div className="panel upload-panel">
             <div className="panel-title">

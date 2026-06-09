@@ -238,6 +238,28 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.advisory {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fff8df;
+  border: 1px solid var(--tku-yellow);
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.advisory svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #b8860b;
+}
+
+.advisory p {
+  margin: 0;
+  line-height: 1.5;
+}
+
 .grid {
   display: grid;
   grid-template-columns: minmax(300px, 1.15fr) minmax(320px, 1fr) 260px;
