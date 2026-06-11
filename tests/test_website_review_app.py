@@ -35,6 +35,29 @@ def test_website_check_creates_background_job(client, monkeypatch):
     job = client.get(f"/api/jobs/{response.get_json()['jobId']}").get_json()
     assert job["status"] == "queued"
     assert job["files"][0]["extension"] == ".url"
+    assert "scanMeta" in job
+
+
+def test_website_check_passes_path_rules(client, monkeypatch):
+    submitted = []
+    monkeypatch.setattr("app.routes.validate_public_url", lambda url: None)
+    monkeypatch.setattr("app.routes.submit_website_scan", lambda *args: submitted.append(args))
+    response = client.post(
+        "/api/sites/check",
+        json={
+            "url": "https://www.example.edu.tw/",
+            "mode": "site",
+            "maxPages": 5,
+            "maxDepth": 1,
+            "includePatterns": ["/news/", "/news/", "  "],
+            "excludePatterns": ["/login"],
+        },
+    )
+    assert response.status_code == 202
+    # submit_website_scan(job_id, file_id, url, mode, max_pages, max_depth, use_sitemap, include, exclude)
+    include_arg, exclude_arg = submitted[0][-2], submitted[0][-1]
+    assert include_arg == ["/news/"]  # 去空白與去重
+    assert exclude_arg == ["/login"]
 
 
 def test_url_security_blocks_local_network():
@@ -109,6 +132,53 @@ def test_website_job_stores_masked_result_without_raw_value(client, monkeypatch)
         ).fetchone()
         assert stored["masked_text"] == "A********9"
         assert "A123456789" not in str(dict(stored))
+
+
+def test_website_site_scan_persists_scan_meta(client, monkeypatch):
+    import json as _json
+
+    app = client.application
+    job_id = str(uuid.uuid4())
+    file_id = str(uuid.uuid4())
+
+    def fake_scan_site(url, **kwargs):
+        stats = kwargs.get("stats")
+        issues = kwargs.get("issues")
+        if stats is not None:
+            stats.update({"pages_scanned": 3, "documents_scanned": 1, "bytes_total": 2048})
+        if issues is not None:
+            from pii_scanner.scanners.scan_issue import ScanIssue
+
+            issues.append(ScanIssue("https://example.com/big.pdf", "文件超過 5 MB，已截斷後掃描"))
+        return []
+
+    monkeypatch.setattr("pii_scanner.scanners.web_scanner.scan_site", fake_scan_site)
+    with app.app_context():
+        db = get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        db.execute(
+            """
+            INSERT INTO scan_jobs
+            (id, actor, status, progress, message, file_count, total_size, created_at, updated_at)
+            VALUES (?, 'anonymous', 'queued', 0, 'queued', 1, 0, ?, ?)
+            """,
+            (job_id, now, now),
+        )
+        db.execute(
+            """
+            INSERT INTO files
+            (id, job_id, original_name, extension, size, sha256, status, created_at)
+            VALUES (?, ?, 'https://example.com/', '.url', 0, 'hash', 'queued', ?)
+            """,
+            (file_id, job_id, now),
+        )
+        db.commit()
+        run_website_scan(job_id, file_id, "https://example.com/", "site", 5, 1, False, ["/news/"], ["/login"])
+        row = db.execute("SELECT scan_meta FROM scan_jobs WHERE id = ?", (job_id,)).fetchone()
+        meta = _json.loads(row["scan_meta"])
+        assert meta["mode"] == "site"
+        assert meta["stats"]["pages_scanned"] == 3
+        assert meta["issues"][0]["reason"].startswith("文件超過")
 
 
 def test_admin_can_save_and_reload_whitelist(client, monkeypatch, tmp_path):

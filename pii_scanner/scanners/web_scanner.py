@@ -484,6 +484,37 @@ def discover_sitemap_urls(
     return urls
 
 
+def _compile_patterns(patterns: Optional[Iterable[str]]) -> List[re.Pattern[str]]:
+    compiled: List[re.Pattern[str]] = []
+    for pattern in patterns or []:
+        text = (pattern or "").strip()
+        if not text:
+            continue
+        try:
+            compiled.append(re.compile(text))
+        except re.error:
+            # 非合法正則時退化為子字串比對
+            compiled.append(re.compile(re.escape(text)))
+    return compiled
+
+
+def _url_allowed_by_path_rules(
+    url: str,
+    include: List[re.Pattern[str]],
+    exclude: List[re.Pattern[str]],
+) -> bool:
+    """以 include / exclude 正則過濾 URL（比對完整 URL）。
+
+    - 有 include 規則時，URL 必須命中至少一條才納入。
+    - 命中任一 exclude 規則則排除（exclude 優先於 include）。
+    """
+    if any(pattern.search(url) for pattern in exclude):
+        return False
+    if include and not any(pattern.search(url) for pattern in include):
+        return False
+    return True
+
+
 def scan_site(
     start_url: str,
     *,
@@ -500,11 +531,16 @@ def scan_site(
     stats: Optional[dict] = None,
     preview: Optional[dict] = None,
     use_sitemap: bool = False,
+    include_patterns: Optional[Iterable[str]] = None,
+    exclude_patterns: Optional[Iterable[str]] = None,
     url_validator: Optional[Callable[[str], None]] = None,
 ) -> List[Finding]:
     """以 BFS 走訪同網域連結並掃描每個頁面與可下載文件。
 
     - ``use_sitemap=True``：先嘗試 ``/sitemap.xml``，將其中 URL 全部加入佇列。
+    - ``include_patterns`` / ``exclude_patterns``：以正則（或子字串）限制要掃描的
+      URL，例如只掃 ``/news/`` 或排除 ``/login``。exclude 優先於 include；
+      起始網址不受規則限制，必定掃描。
     - 下載連結會自動辨識並分析：PDF / Word / Excel / OpenDocument /
       **ZIP 壓縮包**（遞迴解開成員）/ CSV / JSON / 純文字等。
     - HTML 內含 ``iframe``、``embed``、``object``、``link rel=alternate`` 等
@@ -515,6 +551,9 @@ def scan_site(
     if headers:
         h.update(headers)
     user_agent = h.get("User-Agent", "*")
+
+    include = _compile_patterns(include_patterns)
+    exclude = _compile_patterns(exclude_patterns)
 
     start_origin = urlparse(start_url).netloc
     visited: Set[str] = set()
@@ -542,6 +581,8 @@ def scan_site(
             if same_origin and urlparse(u).netloc != start_origin:
                 continue
             if u in visited:
+                continue
+            if not _url_allowed_by_path_rules(u, include, exclude):
                 continue
             queue.append((u, 0))
             sitemap_seeded += 1
@@ -601,6 +642,8 @@ def scan_site(
                 if same_origin and urlparse(link).netloc != start_origin:
                     continue
                 if link in visited:
+                    continue
+                if not _url_allowed_by_path_rules(link, include, exclude):
                     continue
                 if depth < max_depth or is_downloadable_url(link):
                     queue.append((link, depth + 1))

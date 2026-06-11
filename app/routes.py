@@ -209,6 +209,20 @@ def estimate_upload():
     return jsonify({"estimate": estimate, "allowed": not errors, "errors": errors})
 
 
+def _clean_patterns(value: object, limit: int = 20) -> list[str]:
+    """正規化 include/exclude 規則：去空白、去重、限制數量與長度。"""
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in cleaned:
+            cleaned.append(text[:200])
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
 @api.post("/sites/check")
 @login_required
 def check_website():
@@ -240,6 +254,8 @@ def check_website():
     except (TypeError, ValueError):
         return jsonify({"error": "invalid_limits", "message": "頁數與深度必須是整數。"}), 400
     use_sitemap = bool(payload.get("useSitemap", False))
+    include_patterns = _clean_patterns(payload.get("includePatterns"))
+    exclude_patterns = _clean_patterns(payload.get("excludePatterns"))
     job_id = str(uuid.uuid4())
     file_id = str(uuid.uuid4())
     created_at = now_iso()
@@ -265,10 +281,20 @@ def check_website():
         "website_scan_created",
         "scan_job",
         job_id,
-        {"mode": mode, "maxPages": max_pages, "maxDepth": max_depth, "useSitemap": use_sitemap},
+        {
+            "mode": mode,
+            "maxPages": max_pages,
+            "maxDepth": max_depth,
+            "useSitemap": use_sitemap,
+            "includePatterns": include_patterns,
+            "excludePatterns": exclude_patterns,
+        },
     )
     db.commit()
-    submit_website_scan(job_id, file_id, url, mode, max_pages, max_depth, use_sitemap)
+    submit_website_scan(
+        job_id, file_id, url, mode, max_pages, max_depth, use_sitemap,
+        include_patterns, exclude_patterns,
+    )
     return jsonify({"jobId": job_id, "status": "queued"}), 202
 
 
@@ -287,6 +313,14 @@ def get_job(job_id: str):
         ).fetchall()
     ]
     job["files"] = files
+    raw_meta = job.pop("scan_meta", None)
+    if raw_meta:
+        try:
+            job["scanMeta"] = json.loads(raw_meta)
+        except (TypeError, ValueError):
+            job["scanMeta"] = None
+    else:
+        job["scanMeta"] = None
     return jsonify(job)
 
 

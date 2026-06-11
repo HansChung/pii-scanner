@@ -96,6 +96,64 @@ def test_scan_site_follows_document_link(mock_get, _robots, _sleep):
     assert any(f.source and f.source.startswith(doc_url) for f in findings)
 
 
+@patch("pii_scanner.scanners.web_scanner.time.sleep", return_value=None)
+@patch("pii_scanner.scanners.web_scanner._allowed_by_robots", return_value=True)
+@patch("pii_scanner.scanners.web_scanner.requests.get")
+def test_scan_site_exclude_pattern_skips_url(mock_get, _robots, _sleep):
+    pages = {
+        "https://example.com/": '<a href="/news/a">news</a><a href="/login">login</a>',
+        "https://example.com/news/a": "姓名：王小明 手機 0912345678",
+        "https://example.com/login": "姓名：登入頁 機密 A123456789",
+    }
+
+    def side_effect(url, **kwargs):
+        body = pages.get(url.split("#")[0], "")
+        return _mock_response(content=body.encode("utf-8"), content_type="text/html")
+
+    mock_get.side_effect = side_effect
+    visited_stats: dict = {}
+    scan_site(
+        "https://example.com/",
+        max_pages=10,
+        max_depth=1,
+        delay=0,
+        respect_robots=False,
+        exclude_patterns=["/login"],
+        stats=visited_stats,
+    )
+    fetched = [call.args[0] for call in mock_get.call_args_list]
+    assert "https://example.com/news/a" in fetched
+    assert "https://example.com/login" not in fetched
+
+
+@patch("pii_scanner.scanners.web_scanner.time.sleep", return_value=None)
+@patch("pii_scanner.scanners.web_scanner._allowed_by_robots", return_value=True)
+@patch("pii_scanner.scanners.web_scanner.requests.get")
+def test_scan_site_include_pattern_limits_scope(mock_get, _robots, _sleep):
+    pages = {
+        "https://example.com/": '<a href="/news/a">news</a><a href="/about">about</a>',
+        "https://example.com/news/a": "內容",
+        "https://example.com/about": "內容",
+    }
+
+    def side_effect(url, **kwargs):
+        body = pages.get(url.split("#")[0], "")
+        return _mock_response(content=body.encode("utf-8"), content_type="text/html")
+
+    mock_get.side_effect = side_effect
+    scan_site(
+        "https://example.com/",
+        max_pages=10,
+        max_depth=1,
+        delay=0,
+        respect_robots=False,
+        include_patterns=["/news/"],
+    )
+    fetched = [call.args[0] for call in mock_get.call_args_list]
+    assert "https://example.com/news/a" in fetched
+    assert "https://example.com/about" not in fetched
+
+
 @patch("pii_scanner.scanners.web_scanner.requests.get")
 def test_scan_url_document_parse_issue(mock_get):
     url = "https://example.com/bad.xlsx"

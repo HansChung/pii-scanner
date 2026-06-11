@@ -69,9 +69,14 @@ def submit_website_scan(
     max_pages: int,
     max_depth: int,
     use_sitemap: bool,
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
 ) -> None:
     app = current_app._get_current_object()
-    args = (app, job_id, file_id, url, mode, max_pages, max_depth, use_sitemap)
+    args = (
+        app, job_id, file_id, url, mode, max_pages, max_depth, use_sitemap,
+        include_patterns or [], exclude_patterns or [],
+    )
     if app.config.get("TESTING"):
         _run_website_with_context(*args)
         return
@@ -92,9 +97,14 @@ def _run_website_with_context(
     max_pages: int,
     max_depth: int,
     use_sitemap: bool,
+    include_patterns: list[str],
+    exclude_patterns: list[str],
 ) -> None:
     with app.app_context():
-        run_website_scan(job_id, file_id, url, mode, max_pages, max_depth, use_sitemap)
+        run_website_scan(
+            job_id, file_id, url, mode, max_pages, max_depth, use_sitemap,
+            include_patterns, exclude_patterns,
+        )
 
 
 def run_website_scan(
@@ -105,16 +115,19 @@ def run_website_scan(
     max_pages: int,
     max_depth: int,
     use_sitemap: bool,
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
 ) -> None:
+    from pii_scanner.scanners.scan_issue import ScanIssue
     from pii_scanner.scanners.web_scanner import scan_site, scan_url
 
     db = get_db()
     try:
         _update_file(file_id, "processing")
         _update_job(job_id, "processing", 10, "正在抓取公開網站內容")
-        issues = []
+        issues: list[ScanIssue] = []
+        stats: dict = {}
         if mode == "site":
-            stats = {}
             legacy_findings = scan_site(
                 url,
                 max_pages=max_pages,
@@ -126,6 +139,8 @@ def run_website_scan(
                 issues=issues,
                 stats=stats,
                 use_sitemap=use_sitemap,
+                include_patterns=include_patterns,
+                exclude_patterns=exclude_patterns,
                 url_validator=validate_public_url,
             )
             message = f"整站查驗完成，共掃描 {stats.get('pages_scanned', 0)} 個頁面"
@@ -137,6 +152,7 @@ def run_website_scan(
                 url_validator=validate_public_url,
             )
             message = "單一網址查驗完成"
+        _persist_scan_meta(job_id, mode, stats, issues)
         _update_job(job_id, "processing", 85, "正在整理網站風險結果")
         findings = [_legacy_finding(item) for item in apply_whitelist(legacy_findings)]
         for finding in findings:
@@ -615,6 +631,24 @@ def _finish_stopped_job(job_id: str, status: str, message: str, audit_action: st
     )
     db.execute("UPDATE files SET status = ? WHERE job_id = ?", (status, job_id))
     _audit("system", audit_action, "scan_job", job_id, {})
+    db.commit()
+
+
+def _persist_scan_meta(job_id: str, mode: str, stats: dict, issues: list) -> None:
+    """把網站掃描的統計與問題清單存入 scan_jobs.scan_meta（JSON）。"""
+    meta = {
+        "mode": mode,
+        "stats": dict(stats or {}),
+        "issues": [
+            {"path": getattr(item, "path", ""), "reason": getattr(item, "reason", "")}
+            for item in (issues or [])
+        ],
+    }
+    db = get_db()
+    db.execute(
+        "UPDATE scan_jobs SET scan_meta = ? WHERE id = ?",
+        (json.dumps(meta, ensure_ascii=False), job_id),
+    )
     db.commit()
 
 

@@ -111,6 +111,7 @@ def init_db() -> None:
         """
     )
     _ensure_column(db, "scan_jobs", "actor", "TEXT NOT NULL DEFAULT 'anonymous'")
+    _ensure_column(db, "scan_jobs", "scan_meta", "TEXT")
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_scan_jobs_actor_created_at ON scan_jobs(actor, created_at)"
     )

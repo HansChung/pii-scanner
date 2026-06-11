@@ -4,6 +4,20 @@ import { AlertTriangle, CheckCircle2, CircleStop, FileSearch, Gauge, Globe2, Key
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
+type ScanMeta = {
+  mode: string;
+  stats: {
+    pages_scanned?: number;
+    html_scanned?: number;
+    documents_scanned?: number;
+    archives_scanned?: number;
+    text_scanned?: number;
+    sitemap_seeded?: number;
+    bytes_total?: number;
+  };
+  issues: Array<{ path: string; reason: string }>;
+};
+
 type Job = {
   id: string;
   status: string;
@@ -12,6 +26,7 @@ type Job = {
   risk_level: string;
   created_at: string;
   updated_at: string;
+  scanMeta?: ScanMeta | null;
   files: Array<{
     id: string;
     original_name: string;
@@ -214,7 +229,7 @@ const api = {
     if (!res.ok) throw new Error(data.message || '上傳失敗');
     return data as { jobId: string; status: string };
   },
-  async scanWebsite(payload: { url: string; mode: WebsiteMode; maxPages: number; maxDepth: number; useSitemap: boolean }) {
+  async scanWebsite(payload: { url: string; mode: WebsiteMode; maxPages: number; maxDepth: number; useSitemap: boolean; includePatterns: string[]; excludePatterns: string[] }) {
     const res = await fetch('/api/sites/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -273,6 +288,8 @@ function App() {
   const [websiteMaxPages, setWebsiteMaxPages] = useState(10);
   const [websiteMaxDepth, setWebsiteMaxDepth] = useState(1);
   const [websiteUseSitemap, setWebsiteUseSitemap] = useState(false);
+  const [websiteInclude, setWebsiteInclude] = useState('');
+  const [websiteExclude, setWebsiteExclude] = useState('');
   const [whitelist, setWhitelist] = useState<WhitelistState | null>(null);
 
   useEffect(() => {
@@ -384,6 +401,8 @@ function App() {
         maxPages: websiteMaxPages,
         maxDepth: websiteMaxDepth,
         useSitemap: websiteUseSitemap,
+        includePatterns: websiteMode === 'site' ? splitLines(websiteInclude) : [],
+        excludePatterns: websiteMode === 'site' ? splitLines(websiteExclude) : [],
       });
       setJobId(result.jobId);
       setJob(await api.job(result.jobId));
@@ -621,6 +640,14 @@ function App() {
                     <label>最多頁數<input type="number" min="1" max="30" value={websiteMaxPages} onChange={(event) => setWebsiteMaxPages(Number(event.target.value))} /></label>
                     <label>連結深度<input type="number" min="0" max="2" value={websiteMaxDepth} onChange={(event) => setWebsiteMaxDepth(Number(event.target.value))} /></label>
                     <label className="check-row"><input type="checkbox" checked={websiteUseSitemap} onChange={(event) => setWebsiteUseSitemap(event.target.checked)} /> 使用 sitemap.xml 擴充掃描範圍</label>
+                    <label className="field-label">
+                      只掃描（include，每行一條，可用關鍵字或正則）
+                      <textarea value={websiteInclude} onChange={(event) => setWebsiteInclude(event.target.value)} placeholder={'/news/\n/announcement/'} />
+                    </label>
+                    <label className="field-label">
+                      排除（exclude，每行一條，優先於 include）
+                      <textarea value={websiteExclude} onChange={(event) => setWebsiteExclude(event.target.value)} placeholder={'/login\n/admin'} />
+                    </label>
                   </div>
                 )}
                 <p className="form-note">只掃描公開網址；整站模式限制同網域並遵守 robots.txt。</p>
@@ -664,6 +691,7 @@ function App() {
                     </div>
                   ))}
                 </div>
+                {job.scanMeta && <ScanMetaView meta={job.scanMeta} />}
                 {['queued', 'processing', 'cancelling'].includes(job.status) && (
                   <button className="secondary-button" onClick={cancelJob} disabled={job.status === 'cancelling'}>
                     <CircleStop size={18} /> {job.status === 'cancelling' ? '正在取消' : '取消任務'}
@@ -872,6 +900,7 @@ function App() {
             <AlertTriangle size={22} />
             <h3>風險發現</h3>
           </div>
+          {findings.length > 0 && <SourceSummary findings={findings} />}
           <div className="findings-table">
             <div className="table-head">
               <span>風險</span><span>檔案</span><span>類型</span><span>遮罩內容</span><span>位置</span><span>建議</span>
@@ -908,6 +937,81 @@ function Metric({ label, value, tone }: { label: string; value: string; tone: st
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (!bytes) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function ScanMetaView({ meta }: { meta: ScanMeta }) {
+  const stats = meta.stats || {};
+  const chips: Array<[string, string]> = [];
+  if (meta.mode === 'site') {
+    chips.push(['頁面', String(stats.pages_scanned ?? 0)]);
+    if (stats.html_scanned) chips.push(['HTML', String(stats.html_scanned)]);
+    if (stats.documents_scanned) chips.push(['文件', String(stats.documents_scanned)]);
+    if (stats.archives_scanned) chips.push(['壓縮包', String(stats.archives_scanned)]);
+    if (stats.text_scanned) chips.push(['文字檔', String(stats.text_scanned)]);
+    if (stats.sitemap_seeded) chips.push(['sitemap', String(stats.sitemap_seeded)]);
+    if (stats.bytes_total) chips.push(['傳輸量', formatBytes(stats.bytes_total)]);
+  }
+  return (
+    <div className="scan-meta">
+      {chips.length > 0 && (
+        <div className="scan-stats">
+          {chips.map(([label, value]) => (
+            <span key={label}><em>{label}</em>{value}</span>
+          ))}
+        </div>
+      )}
+      {meta.issues.length > 0 && (
+        <details className="scan-issues">
+          <summary>掃描過程問題 {meta.issues.length} 筆</summary>
+          <ul>
+            {meta.issues.map((issue, index) => (
+              <li key={index}><span className="issue-path">{issue.path}</span> — {issue.reason}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function SourceSummary({ findings }: { findings: Finding[] }) {
+  const groups = new Map<string, { high: number; medium: number; low: number; total: number }>();
+  findings.forEach((finding) => {
+    // location 含頁面 URL 或檔名（可能帶 #page/工作表），取 # 前作為來源
+    const source = (finding.location || finding.original_name || '未知來源').split('#')[0];
+    const group = groups.get(source) || { high: 0, medium: 0, low: 0, total: 0 };
+    if (finding.risk_level === 'High') group.high += 1;
+    else if (finding.risk_level === 'Medium') group.medium += 1;
+    else group.low += 1;
+    group.total += 1;
+    groups.set(source, group);
+  });
+  if (groups.size <= 1) return null;
+  const rows = Array.from(groups.entries()).sort((a, b) => b[1].high - a[1].high || b[1].total - a[1].total);
+  return (
+    <details className="source-summary" open>
+      <summary>依來源彙整（{groups.size} 個頁面/檔案）</summary>
+      <div className="source-rows">
+        {rows.map(([source, counts]) => (
+          <div className="source-row" key={source}>
+            <span className="source-name" title={source}>{source}</span>
+            <span className="source-counts">
+              {counts.high > 0 && <em className="risk high">高 {counts.high}</em>}
+              {counts.medium > 0 && <em className="risk medium">中 {counts.medium}</em>}
+              {counts.low > 0 && <em className="risk low">低 {counts.low}</em>}
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
