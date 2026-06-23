@@ -294,10 +294,28 @@ button:disabled {
   align-items: center;
   gap: 10px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .panel h3 {
   font-size: 18px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.status-badge.developing {
+  background: #fff8df;
+  border: 1px solid var(--tku-yellow);
+  color: #684f00;
 }
 
 .dropzone {
@@ -347,6 +365,33 @@ button:disabled {
 .website-form {
   display: grid;
   gap: 12px;
+}
+
+.feature-callout {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #f1d278;
+  border-left: 4px solid var(--tku-yellow);
+  border-radius: 8px;
+  background: #fffdf4;
+}
+
+.feature-callout div {
+  display: grid;
+  gap: 8px;
+}
+
+.feature-callout strong {
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.feature-callout p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .website-form label {
@@ -400,6 +445,36 @@ button:disabled {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.website-capabilities {
+  display: grid;
+  gap: 10px;
+}
+
+.website-capabilities section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.website-capabilities h4 {
+  margin: 0 0 8px;
+  color: var(--tku-red-dark);
+  font-size: 14px;
+}
+
+.website-capabilities ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.website-capabilities li + li {
+  margin-top: 4px;
 }
 
 .dropzone input {

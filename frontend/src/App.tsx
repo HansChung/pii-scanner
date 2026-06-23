@@ -581,6 +581,7 @@ function App() {
             <div className="panel-title">
               {scanSource === 'file' ? <UploadCloud size={22} /> : <Globe2 size={22} />}
               <h3>{scanSource === 'file' ? '上傳查驗' : '網站查驗'}</h3>
+              {scanSource === 'website' && <span className="status-badge developing">開發中</span>}
             </div>
             <div className="mode-switch" aria-label="查驗來源">
               <button className={scanSource === 'file' ? 'active' : ''} onClick={() => setScanSource('file')}>
@@ -627,6 +628,16 @@ function App() {
               </>
             ) : (
               <div className="website-form">
+                <div className="feature-callout">
+                  <div>
+                    <span className="status-badge developing">網站掃描功能開發中</span>
+                    <strong>目前適合用來輔助抽查公開網頁，正式公開前仍須人工複核。</strong>
+                  </div>
+                  <p>
+                    此功能會抓取公開網址文字與可辨識文件連結進行個資風險檢查。整站掃描仍在調整效能、覆蓋率與誤判控管，
+                    建議先以單一網址或小範圍目錄測試。
+                  </p>
+                </div>
                 <div className="mode-switch compact-switch" aria-label="網站查驗模式">
                   <button className={websiteMode === 'url' ? 'active' : ''} onClick={() => setWebsiteMode('url')}>單一網址</button>
                   <button className={websiteMode === 'site' ? 'active' : ''} onClick={() => setWebsiteMode('site')}>整站掃描</button>
@@ -651,6 +662,33 @@ function App() {
                   </div>
                 )}
                 <p className="form-note">只掃描公開網址；整站模式限制同網域並遵守 robots.txt。</p>
+                <div className="website-capabilities" aria-label="網站掃描目前使用方式與能力">
+                  <section>
+                    <h4>建議使用方式</h4>
+                    <ul>
+                      <li>先用「單一網址」檢查公告、表單、名冊、活動成果頁等高風險頁面。</li>
+                      <li>整站掃描請先限制最多頁數、連結深度，並用 include / exclude 縮小到特定目錄。</li>
+                      <li>若掃描時間較長，請觀察任務狀態的耗時與最近活動；必要時可取消後調低頁數再試。</li>
+                    </ul>
+                  </section>
+                  <section>
+                    <h4>目前能力</h4>
+                    <ul>
+                      <li>支援 http / https 公開網址，會阻擋本機與內部網路位址。</li>
+                      <li>單一網址會擷取頁面文字，套用個資規則、白名單與遮罩後結果。</li>
+                      <li>整站模式限制同網域，可遵守 robots.txt、讀取 sitemap.xml，並記錄已掃頁數與略過原因。</li>
+                      <li>可偵測頁面中的身分證、電話、Email、地址、護照、健保卡、車牌、IP 等常見風險。</li>
+                    </ul>
+                  </section>
+                  <section>
+                    <h4>目前限制</h4>
+                    <ul>
+                      <li>不登入後台、不掃描需要帳號密碼、表單送出或互動後才出現的內容。</li>
+                      <li>動態載入內容、圖片文字與大型附件可能仍需人工或檔案查驗補強。</li>
+                      <li>整站掃描可能受網站速度、robots.txt、連結結構與 Azure AI 回應時間影響。</li>
+                    </ul>
+                  </section>
+                </div>
                 <button disabled={!websiteUrl.trim() || busy} onClick={handleWebsiteScan}>
                   {busy ? <Loader2 className="spin" size={18} /> : <Globe2 size={18} />}
                   開始網站查驗
