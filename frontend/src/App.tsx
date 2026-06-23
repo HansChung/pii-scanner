@@ -14,8 +14,24 @@ type ScanMeta = {
     text_scanned?: number;
     sitemap_seeded?: number;
     bytes_total?: number;
+    start_url?: string;
+    current_url?: string;
+    queue_size?: number;
+    max_pages?: number;
+    scanned_urls?: string[];
+    document_urls?: WebsiteAsset[];
+    archive_urls?: WebsiteAsset[];
+    text_urls?: WebsiteAsset[];
+    skipped_urls?: Array<{ url: string; reason: string }>;
   };
   issues: Array<{ path: string; reason: string }>;
+};
+
+type WebsiteAsset = {
+  url: string;
+  status: string;
+  bytes?: number;
+  type?: string;
 };
 
 type Job = {
@@ -716,6 +732,7 @@ function App() {
                 {!isTerminalStatus(job.status) && clock - new Date(job.updated_at).getTime() > 45000 && (
                   <p className="slow-notice">外部 AI 服務回應較慢，系統仍在等待。可繼續等候或取消任務後再試。</p>
                 )}
+                {job.scanMeta && <WebsiteProgress meta={job.scanMeta} />}
                 <div className="status-cards">
                   <Metric label="整體風險" value={job.risk_level} tone={riskTone(job.risk_level)} />
                   <Metric label="高風險" value={riskSummary.High.toString()} tone="high" />
@@ -938,7 +955,8 @@ function App() {
             <AlertTriangle size={22} />
             <h3>風險發現</h3>
           </div>
-          {findings.length > 0 && <SourceSummary findings={findings} />}
+          {findings.length > 0 && job?.scanMeta?.mode && <WebsiteFindingGroups findings={findings} />}
+          {findings.length > 0 && !job?.scanMeta?.mode && <SourceSummary findings={findings} />}
           <div className="findings-table">
             <div className="table-head">
               <span>風險</span><span>檔案</span><span>類型</span><span>遮罩內容</span><span>位置</span><span>建議</span>
@@ -985,6 +1003,31 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function WebsiteProgress({ meta }: { meta: ScanMeta }) {
+  const stats = meta.stats || {};
+  if (!stats.current_url && !stats.pages_scanned && !stats.queue_size) return null;
+  const scanned = stats.pages_scanned ?? 0;
+  const maxPages = stats.max_pages ?? (meta.mode === 'site' ? 0 : 1);
+  return (
+    <div className="website-progress-detail">
+      <div>
+        <span>已掃頁數</span>
+        <strong>{maxPages ? `${scanned} / ${maxPages}` : scanned}</strong>
+      </div>
+      <div>
+        <span>佇列剩餘</span>
+        <strong>{stats.queue_size ?? 0}</strong>
+      </div>
+      {stats.current_url && (
+        <div className="current-url">
+          <span>目前 URL</span>
+          <strong title={stats.current_url}>{stats.current_url}</strong>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScanMetaView({ meta }: { meta: ScanMeta }) {
   const stats = meta.stats || {};
   const chips: Array<[string, string]> = [];
@@ -997,6 +1040,12 @@ function ScanMetaView({ meta }: { meta: ScanMeta }) {
     if (stats.sitemap_seeded) chips.push(['sitemap', String(stats.sitemap_seeded)]);
     if (stats.bytes_total) chips.push(['傳輸量', formatBytes(stats.bytes_total)]);
   }
+  const assets = [
+    ...(stats.document_urls || []).map((item) => ({ ...item, kind: '文件' })),
+    ...(stats.archive_urls || []).map((item) => ({ ...item, kind: '壓縮包' })),
+    ...(stats.text_urls || []).map((item) => ({ ...item, kind: '文字' })),
+  ];
+  const skipped = stats.skipped_urls || [];
   return (
     <div className="scan-meta">
       {chips.length > 0 && (
@@ -1005,6 +1054,27 @@ function ScanMetaView({ meta }: { meta: ScanMeta }) {
             <span key={label}><em>{label}</em>{value}</span>
           ))}
         </div>
+      )}
+      {(assets.length > 0 || skipped.length > 0) && (
+        <details className="asset-status" open>
+          <summary>附件與網址處理狀態（已處理 {assets.length}，略過 {skipped.length}）</summary>
+          <div className="asset-rows">
+            {assets.map((asset) => (
+              <div className="asset-row" key={`${asset.kind}-${asset.url}`}>
+                <span className="asset-kind">{asset.kind}{asset.type ? ` ${asset.type}` : ''}</span>
+                <span className="asset-url" title={asset.url}>{asset.url}</span>
+                <strong>{asset.bytes ? formatBytes(asset.bytes) : asset.status}</strong>
+              </div>
+            ))}
+            {skipped.map((item) => (
+              <div className="asset-row skipped" key={`skipped-${item.url}`}>
+                <span className="asset-kind">略過</span>
+                <span className="asset-url" title={item.url}>{item.url}</span>
+                <strong>{item.reason}</strong>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
       {meta.issues.length > 0 && (
         <details className="scan-issues">
@@ -1020,11 +1090,60 @@ function ScanMetaView({ meta }: { meta: ScanMeta }) {
   );
 }
 
+function findingSource(finding: Finding): string {
+  return (finding.location || finding.original_name || '未知來源').split('#')[0];
+}
+
+function WebsiteFindingGroups({ findings }: { findings: Finding[] }) {
+  const groups = new Map<string, Finding[]>();
+  findings.forEach((finding) => {
+    const source = findingSource(finding);
+    groups.set(source, [...(groups.get(source) || []), finding]);
+  });
+  const rows = Array.from(groups.entries()).sort((a, b) => {
+    const highA = a[1].filter((finding) => finding.risk_level === 'High').length;
+    const highB = b[1].filter((finding) => finding.risk_level === 'High').length;
+    return highB - highA || b[1].length - a[1].length;
+  });
+  return (
+    <div className="website-finding-groups">
+      {rows.map(([source, sourceFindings]) => {
+        const high = sourceFindings.filter((finding) => finding.risk_level === 'High').length;
+        const medium = sourceFindings.filter((finding) => finding.risk_level === 'Medium').length;
+        const low = sourceFindings.length - high - medium;
+        return (
+          <details className="website-finding-group" key={source} open={rows.length <= 3}>
+            <summary>
+              <span title={source}>{source}</span>
+              <em>
+                {high > 0 && <b className="risk high">高 {high}</b>}
+                {medium > 0 && <b className="risk medium">中 {medium}</b>}
+                {low > 0 && <b className="risk low">低 {low}</b>}
+              </em>
+            </summary>
+            <div className="group-finding-list">
+              {sourceFindings.map((finding) => (
+                <div className="group-finding" key={finding.id}>
+                  <span className={`risk ${finding.risk_level.toLowerCase()}`}>{finding.risk_level}</span>
+                  <span>{finding.category}</span>
+                  <strong>{finding.masked_text}</strong>
+                  <span>{finding.location}</span>
+                  <span>{finding.recommendation}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
 function SourceSummary({ findings }: { findings: Finding[] }) {
   const groups = new Map<string, { high: number; medium: number; low: number; total: number }>();
   findings.forEach((finding) => {
     // location 含頁面 URL 或檔名（可能帶 #page/工作表），取 # 前作為來源
-    const source = (finding.location || finding.original_name || '未知來源').split('#')[0];
+    const source = findingSource(finding);
     const group = groups.get(source) || { high: 0, medium: 0, low: 0, total: 0 };
     if (finding.risk_level === 'High') group.high += 1;
     else if (finding.risk_level === 'Medium') group.medium += 1;

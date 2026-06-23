@@ -127,6 +127,7 @@ def run_website_scan(
         _update_job(job_id, "processing", 10, "正在抓取公開網站內容")
         issues: list[ScanIssue] = []
         stats: dict = {}
+        progress_callback = _website_progress_callback(job_id, mode, stats, issues, max_pages)
         if mode == "site":
             legacy_findings = scan_site(
                 url,
@@ -142,15 +143,19 @@ def run_website_scan(
                 include_patterns=include_patterns,
                 exclude_patterns=exclude_patterns,
                 url_validator=validate_public_url,
+                progress_callback=progress_callback,
             )
             message = f"整站查驗完成，共掃描 {stats.get('pages_scanned', 0)} 個頁面"
         else:
+            progress_callback({"stage": "fetching", "current_url": url})
             legacy_findings = scan_url(
                 url,
                 timeout=current_app.config["WEBSITE_SCAN_HTTP_TIMEOUT_SECONDS"],
                 issues=issues,
+                stats=stats,
                 url_validator=validate_public_url,
             )
+            progress_callback({"stage": "scanned", "current_url": url})
             message = "單一網址查驗完成"
         _persist_scan_meta(job_id, mode, stats, issues)
         _update_job(job_id, "processing", 85, "正在整理網站風險結果")
@@ -632,6 +637,39 @@ def _finish_stopped_job(job_id: str, status: str, message: str, audit_action: st
     db.execute("UPDATE files SET status = ? WHERE job_id = ?", (status, job_id))
     _audit("system", audit_action, "scan_job", job_id, {})
     db.commit()
+
+
+def _website_progress_callback(job_id: str, mode: str, stats: dict, issues: list, max_pages: int):
+    """回傳給網站掃描器的進度更新函式，讓前端輪詢時看得到目前 URL。"""
+
+    def update(event: dict) -> None:
+        current_url = event.get("current_url") or stats.get("current_url") or ""
+        scanned = int(stats.get("pages_scanned") or 0)
+        queue_size = int(stats.get("queue_size") or 0)
+        page_limit = max(1, int(stats.get("max_pages") or max_pages or 1))
+        if event.get("stage") == "fetching":
+            progress = min(80, 12 + int(scanned / page_limit * 65))
+            message = f"正在掃描：{current_url}"
+        elif event.get("stage") == "skipped":
+            progress = min(80, 12 + int(scanned / page_limit * 65))
+            message = f"已略過 1 個網址，佇列尚有 {queue_size} 個"
+        else:
+            progress = min(80, 15 + int(scanned / page_limit * 65))
+            label = "已掃描" if mode == "site" else "已讀取"
+            message = f"{label} {scanned}/{page_limit}，佇列尚有 {queue_size} 個"
+        _persist_scan_meta(job_id, mode, stats, issues)
+        db = get_db()
+        db.execute(
+            """
+            UPDATE scan_jobs
+            SET status = 'processing', progress = ?, message = ?, updated_at = ?
+            WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')
+            """,
+            (progress, message, now_iso(), job_id),
+        )
+        db.commit()
+
+    return update
 
 
 def _persist_scan_meta(job_id: str, mode: str, stats: dict, issues: list) -> None:

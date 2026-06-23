@@ -144,8 +144,28 @@ def test_website_site_scan_persists_scan_meta(client, monkeypatch):
     def fake_scan_site(url, **kwargs):
         stats = kwargs.get("stats")
         issues = kwargs.get("issues")
+        progress_callback = kwargs.get("progress_callback")
         if stats is not None:
-            stats.update({"pages_scanned": 3, "documents_scanned": 1, "bytes_total": 2048})
+            stats.update({
+                "pages_scanned": 1,
+                "documents_scanned": 1,
+                "bytes_total": 2048,
+                "current_url": "https://example.com/big.pdf",
+                "queue_size": 2,
+                "max_pages": 5,
+                "document_urls": [
+                    {
+                        "url": "https://example.com/big.pdf",
+                        "status": "scanned",
+                        "bytes": 2048,
+                        "type": ".pdf",
+                    }
+                ],
+            })
+        if progress_callback is not None:
+            progress_callback({"stage": "scanned", "current_url": "https://example.com/big.pdf"})
+        if stats is not None:
+            stats["pages_scanned"] = 3
         if issues is not None:
             from pii_scanner.scanners.scan_issue import ScanIssue
 
@@ -178,6 +198,8 @@ def test_website_site_scan_persists_scan_meta(client, monkeypatch):
         meta = _json.loads(row["scan_meta"])
         assert meta["mode"] == "site"
         assert meta["stats"]["pages_scanned"] == 3
+        assert meta["stats"]["current_url"] == "https://example.com/big.pdf"
+        assert meta["stats"]["document_urls"][0]["type"] == ".pdf"
         assert meta["issues"][0]["reason"].startswith("文件超過")
 
 

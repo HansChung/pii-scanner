@@ -360,22 +360,72 @@ def scan_url(
     content_type = resp.headers.get("Content-Type", "")
     data = resp.content
     doc_ext = _resolve_document_ext(url, content_type, data)
+    if stats is not None:
+        stats.update(
+            {
+                "pages_scanned": 1,
+                "bytes_total": len(data),
+                "start_url": url,
+                "current_url": url,
+                "queue_size": 0,
+                "max_pages": 1,
+                "scanned_urls": [url],
+                "document_urls": [],
+                "archive_urls": [],
+                "text_urls": [],
+                "skipped_urls": [],
+            }
+        )
     if doc_ext:
+        if stats is not None:
+            stats["documents_scanned"] = 1
+            stats["html_scanned"] = 0
+            stats["archives_scanned"] = 0
+            stats["text_scanned"] = 0
+            stats["document_urls"] = [
+                {"url": url, "status": "scanned", "bytes": len(data), "type": doc_ext}
+            ]
         return _scan_response_as_document(
             data, url, doc_ext,
             detectors=detectors, issues=issues, preview=preview, stats=stats,
         )
     if _is_archive_response(url, content_type, data):
+        if stats is not None:
+            stats["documents_scanned"] = 0
+            stats["html_scanned"] = 0
+            stats["archives_scanned"] = 1
+            stats["text_scanned"] = 0
+            stats["archive_urls"] = [
+                {"url": url, "status": "scanned", "bytes": len(data), "type": ".zip"}
+            ]
         return _scan_response_as_archive(
             data, url,
             detectors=detectors, issues=issues, preview=preview, stats=stats,
         )
     if "html" in content_type or "xml" in content_type:
         text = _html_to_text(resp.text)
+        if stats is not None:
+            stats["documents_scanned"] = 0
+            stats["html_scanned"] = 1
+            stats["archives_scanned"] = 0
+            stats["text_scanned"] = 0
     elif "text" in content_type or "json" in content_type or is_textual_url(url):
         text = resp.text
+        if stats is not None:
+            stats["documents_scanned"] = 0
+            stats["html_scanned"] = 0
+            stats["archives_scanned"] = 0
+            stats["text_scanned"] = 1
+            stats["text_urls"] = [
+                {"url": url, "status": "scanned", "bytes": len(data), "type": "text"}
+            ]
     else:
         text = resp.text
+        if stats is not None:
+            stats["documents_scanned"] = 0
+            stats["html_scanned"] = 0
+            stats["archives_scanned"] = 0
+            stats["text_scanned"] = 0
     if preview is not None and text:
         preview[url] = text
     return detect_in_text(text, detectors=detectors, source=url)
@@ -534,6 +584,7 @@ def scan_site(
     include_patterns: Optional[Iterable[str]] = None,
     exclude_patterns: Optional[Iterable[str]] = None,
     url_validator: Optional[Callable[[str], None]] = None,
+    progress_callback: Optional[Callable[[dict], None]] = None,
 ) -> List[Finding]:
     """以 BFS 走訪同網域連結並掃描每個頁面與可下載文件。
 
@@ -567,6 +618,36 @@ def scan_site(
     text_scanned = 0
     sitemap_seeded = 0
     bytes_total = 0
+    scanned_urls: List[str] = []
+    document_urls: List[dict] = []
+    archive_urls: List[dict] = []
+    text_urls: List[dict] = []
+    skipped_urls: List[dict] = []
+
+    def emit(stage: str, current_url: str = "") -> None:
+        if stats is not None:
+            stats.update(
+                {
+                    "pages_scanned": pages_scanned,
+                    "html_scanned": html_scanned,
+                    "documents_scanned": documents_scanned,
+                    "archives_scanned": archives_scanned,
+                    "text_scanned": text_scanned,
+                    "sitemap_seeded": sitemap_seeded,
+                    "bytes_total": bytes_total,
+                    "start_url": start_url,
+                    "current_url": current_url,
+                    "queue_size": len(queue),
+                    "max_pages": max_pages,
+                    "scanned_urls": list(scanned_urls),
+                    "document_urls": list(document_urls),
+                    "archive_urls": list(archive_urls),
+                    "text_urls": list(text_urls),
+                    "skipped_urls": list(skipped_urls),
+                }
+            )
+        if progress_callback is not None:
+            progress_callback({"stage": stage, "current_url": current_url})
 
     if use_sitemap:
         try:
@@ -586,18 +667,22 @@ def scan_site(
                 continue
             queue.append((u, 0))
             sitemap_seeded += 1
+        emit("sitemap", start_url)
 
     while queue and pages_scanned < max_pages:
         url, depth = queue.popleft()
         if url in visited:
             continue
         visited.add(url)
+        emit("fetching", url)
         if url_validator:
             url_validator(url)
         if respect_robots and not _allowed_by_robots(url, user_agent, robots_cache):
             log.info("robots.txt 拒絕掃描 %s", url)
             if issues is not None:
                 issues.append(ScanIssue(url, "robots.txt 拒絕掃描"))
+            skipped_urls.append({"url": url, "reason": "robots.txt 拒絕掃描"})
+            emit("skipped", url)
             continue
         try:
             resp = _request_get(
@@ -608,15 +693,19 @@ def scan_site(
             log.warning("抓取 %s 失敗：%s", url, exc)
             if issues is not None:
                 issues.append(ScanIssue(url, f"抓取失敗：{exc}"))
+            skipped_urls.append({"url": url, "reason": f"抓取失敗：{exc}"})
+            emit("failed", url)
             continue
 
         pages_scanned += 1
+        scanned_urls.append(url)
         content_type = resp.headers.get("Content-Type", "")
         data = resp.content
         bytes_total += len(data)
         doc_ext = _resolve_document_ext(url, content_type, data)
 
         if doc_ext:
+            document_urls.append({"url": url, "status": "scanned", "bytes": len(data), "type": doc_ext})
             findings.extend(
                 _scan_response_as_document(
                     data, url, doc_ext,
@@ -625,6 +714,7 @@ def scan_site(
             )
             documents_scanned += 1
         elif _is_archive_response(url, content_type, data):
+            archive_urls.append({"url": url, "status": "scanned", "bytes": len(data), "type": ".zip"})
             findings.extend(
                 _scan_response_as_archive(
                     data, url,
@@ -649,9 +739,11 @@ def scan_site(
                     queue.append((link, depth + 1))
         elif "text" in content_type or "json" in content_type or is_textual_url(url):
             text_scanned += 1
+            text_urls.append({"url": url, "status": "scanned", "bytes": len(data), "type": "text"})
             findings.extend(detect_in_text(resp.text, detectors=detectors, source=url))
             if preview is not None and resp.text:
                 preview[url] = resp.text
+        emit("scanned", url)
 
         if delay > 0:
             time.sleep(delay)

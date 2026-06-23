@@ -579,6 +579,42 @@ button:disabled {
   line-height: 1.6;
 }
 
+.website-progress-detail {
+  display: grid;
+  grid-template-columns: 110px 100px minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.website-progress-detail > div {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fafafa;
+}
+
+.website-progress-detail span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.website-progress-detail strong {
+  display: block;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.website-progress-detail .current-url strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .status-cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -931,6 +967,20 @@ button:disabled {
   .review-bar {
     grid-template-columns: 1fr 1fr;
   }
+
+  .website-progress-detail,
+  .asset-row,
+  .group-finding {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-row strong {
+    text-align: left;
+  }
+
+  .website-finding-group summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .scan-meta {
@@ -965,7 +1015,9 @@ button:disabled {
 }
 
 .scan-issues summary,
-.source-summary summary {
+.source-summary summary,
+.asset-status summary,
+.website-finding-group summary {
   cursor: pointer;
   font-weight: 600;
   color: var(--tku-red-dark);
@@ -982,6 +1034,45 @@ button:disabled {
 .scan-issues .issue-path {
   word-break: break-all;
   color: #333;
+}
+
+.asset-rows {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.asset-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid #eeeeee;
+  border-radius: 8px;
+  background: #fafafa;
+  font-size: 13px;
+}
+
+.asset-row.skipped {
+  background: #fff8df;
+}
+
+.asset-kind {
+  color: var(--tku-red-dark);
+  font-weight: 800;
+}
+
+.asset-url {
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.asset-row strong {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
 }
 
 .source-summary {
@@ -1022,4 +1113,67 @@ button:disabled {
   font-style: normal;
   font-weight: 600;
   font-size: 13px;
+}
+
+.website-finding-groups {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.website-finding-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.website-finding-group summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.website-finding-group summary span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.website-finding-group summary em {
+  display: inline-flex;
+  gap: 8px;
+  font-style: normal;
+}
+
+.website-finding-group summary b {
+  font-size: 13px;
+}
+
+.group-finding-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.group-finding {
+  display: grid;
+  grid-template-columns: 70px 120px minmax(120px, 1fr) minmax(160px, 1.1fr) minmax(180px, 1.3fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eeeeee;
+  font-size: 13px;
+}
+
+.group-finding:last-child {
+  border-bottom: 0;
+}
+
+.group-finding span,
+.group-finding strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.group-finding strong {
+  color: var(--ink);
 }
