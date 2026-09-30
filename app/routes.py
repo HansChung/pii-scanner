@@ -10,7 +10,15 @@ from pathlib import Path
 from flask import Blueprint, Response, current_app, jsonify, request
 from requests import RequestException
 
-from .auth import admin_required, auth_configured, current_user, current_user_name, is_admin, login_required
+from .auth import (
+    admin_required,
+    auth_configured,
+    can_access_job,
+    current_user,
+    current_user_name,
+    is_admin,
+    login_required,
+)
 from .azure_services import test_azure_ai_service
 from .db import get_db, row_to_dict
 from .scanner import (
@@ -302,9 +310,9 @@ def check_website():
 @login_required
 def get_job(job_id: str):
     db = get_db()
-    job = row_to_dict(db.execute("SELECT * FROM scan_jobs WHERE id = ?", (job_id,)).fetchone())
+    job = row_to_dict(_accessible_job(job_id))
     if not job:
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+        return _job_not_found()
     files = [
         dict(row)
         for row in db.execute(
@@ -327,8 +335,8 @@ def get_job(job_id: str):
 @api.post("/jobs/<job_id>/cancel")
 @login_required
 def cancel_job(job_id: str):
-    if not cancel_scan(job_id, current_user_name()):
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+    if not _accessible_job(job_id) or not cancel_scan(job_id, current_user_name()):
+        return _job_not_found()
     return jsonify({"jobId": job_id, "status": "cancelling"})
 
 
@@ -336,8 +344,8 @@ def cancel_job(job_id: str):
 @login_required
 def get_findings(job_id: str):
     db = get_db()
-    if not db.execute("SELECT 1 FROM scan_jobs WHERE id = ?", (job_id,)).fetchone():
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+    if not _accessible_job(job_id):
+        return _job_not_found()
     rows = db.execute(
         """
         SELECT findings.*, files.original_name
@@ -363,8 +371,8 @@ def review_job(job_id: str):
     reviewer = current_user_name()
     note = str(payload.get("note") or "")
     db = get_db()
-    if not db.execute("SELECT 1 FROM scan_jobs WHERE id = ?", (job_id,)).fetchone():
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+    if not _accessible_job(job_id):
+        return _job_not_found()
     review_id = str(uuid.uuid4())
     db.execute(
         """
@@ -381,9 +389,9 @@ def review_job(job_id: str):
 @api.get("/jobs/<job_id>/report")
 @login_required
 def report(job_id: str):
-    data = collect_report(job_id)
+    data = collect_report(job_id) if _accessible_job(job_id) else None
     if data is None:
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+        return _job_not_found()
     return jsonify(data)
 
 
@@ -395,9 +403,9 @@ def _report_filename(job_id: str, extension: str) -> str:
 @api.get("/jobs/<job_id>/report.xlsx")
 @login_required
 def report_excel(job_id: str):
-    data = collect_report(job_id)
+    data = collect_report(job_id) if _accessible_job(job_id) else None
     if data is None:
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+        return _job_not_found()
     payload = build_excel(data)
     return Response(
         payload,
@@ -411,9 +419,9 @@ def report_excel(job_id: str):
 @api.get("/jobs/<job_id>/report.pdf")
 @login_required
 def report_pdf(job_id: str):
-    data = collect_report(job_id)
+    data = collect_report(job_id) if _accessible_job(job_id) else None
     if data is None:
-        return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
+        return _job_not_found()
     payload = build_pdf(data)
     return Response(
         payload,
@@ -561,6 +569,23 @@ def test_azure_ai_settings():
     _audit(current_user_name(), "azure_ai_connection_tested", "settings", service, {})
     get_db().commit()
     return jsonify({"service": service, "status": "ok", "message": message})
+
+
+def _accessible_job(job_id: str):
+    """回傳目前使用者可存取的任務列；不存在或無權限都視為查無此任務，不洩漏任務是否存在。"""
+    db = get_db()
+    row = db.execute("SELECT * FROM scan_jobs WHERE id = ?", (job_id,)).fetchone()
+    if not row:
+        return None
+    if not can_access_job(row["actor"]):
+        _audit(current_user_name(), "job_access_denied", "scan_job", job_id, {"path": request.path})
+        db.commit()
+        return None
+    return row
+
+
+def _job_not_found():
+    return jsonify({"error": "not_found", "message": "查無此任務。"}), 404
 
 
 def _audit(actor: str, action: str, target_type: str, target_id: str, metadata: dict) -> None:

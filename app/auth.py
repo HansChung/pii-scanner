@@ -50,6 +50,23 @@ def is_admin() -> bool:
     return str(user.get("email", "")).lower() in admins
 
 
+def can_access_job(actor: str) -> bool:
+    """任務只給建立者本人或 ADMIN_EMAILS 明列的管理者存取。
+
+    不沿用 is_admin()：未設定 ADMIN_EMAILS 時所有登入者都算管理者，
+    若拿來判斷任務權限，等於任何人都能讀別人的查驗結果。
+    """
+    if not current_app.config["AUTH_REQUIRED"]:
+        return True
+    user = current_user()
+    if not user:
+        return False
+    if str(actor or "").lower() == current_user_name().lower():
+        return True
+    admins = current_app.config["ADMIN_EMAILS"]
+    return bool(admins) and str(user.get("email", "")).lower() in admins
+
+
 def login_required(func: F) -> F:
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any):

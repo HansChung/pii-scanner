@@ -40,6 +40,10 @@ from .usage_control import (
 
 executor = ThreadPoolExecutor(max_workers=2)
 
+# 抽不到任何文字的檔案（如掃描影像 PDF 且未啟用 OCR）不能算「無風險」，要標示為未完成查驗
+FILE_STATUS_UNREADABLE = "unreadable"
+_OCR_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
+
 
 class ScanCancelled(Exception):
     pass
@@ -226,6 +230,7 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
         _ensure_active(job_id, deadline)
         _update_job(job_id, "processing", 5, "準備開始查驗")
         all_findings: list[tuple[str, Finding]] = []
+        unreadable_files = 0
         for index, record in enumerate(upload_records, start=1):
             _ensure_active(job_id, deadline)
             file_id = record["file_id"]
@@ -315,6 +320,17 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                     _set_file_error(file_id, f"Office 內嵌圖片 OCR 失敗：{exc}")
                 finally:
                     cleanup_embedded_images(images)
+            if not any(chunk.text.strip() for chunk in chunks):
+                unreadable_files += 1
+                ocr_available = settings["documentIntelligenceEnabled"] and document_intelligence_enabled()
+                _mark_file_unreadable(file_id, _unreadable_reason(extension, ocr_available))
+                _update_job(
+                    job_id,
+                    "processing",
+                    base_progress + span,
+                    f"{file_name}：未讀到可檢查的文字，此檔未完成查驗",
+                )
+                continue
             _update_job(
                 job_id,
                 "processing",
@@ -424,9 +440,15 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                 ),
             )
         risk_level = _overall_risk([finding for _, finding in deduped])
+        message = "查驗完成"
+        if unreadable_files:
+            message = f"查驗完成，但有 {unreadable_files} 個檔案未讀到可檢查的文字，這些檔案未完成查驗"
+            # 沒讀到的檔案可能藏有個資，整體風險不能因此顯得較低
+            if risk_level != "High":
+                risk_level = "Unknown"
         db.execute(
-            "UPDATE files SET status = 'completed' WHERE job_id = ? AND status != 'failed'",
-            (job_id,),
+            "UPDATE files SET status = 'completed' WHERE job_id = ? AND status NOT IN ('failed', ?)",
+            (job_id, FILE_STATUS_UNREADABLE),
         )
         db.execute(
             """
@@ -435,9 +457,15 @@ def run_scan(job_id: str, upload_records: list[dict[str, str]]) -> None:
                 updated_at = ?, completed_at = ?
             WHERE id = ?
             """,
-            ("查驗完成", risk_level, now_iso(), now_iso(), job_id),
+            (message, risk_level, now_iso(), now_iso(), job_id),
         )
-        _audit("system", "scan_completed", "scan_job", job_id, {"findings": len(deduped)})
+        _audit(
+            "system",
+            "scan_completed",
+            "scan_job",
+            job_id,
+            {"findings": len(deduped), "unreadableFiles": unreadable_files},
+        )
         db.commit()
     except ScanCancelled:
         _finish_stopped_job(job_id, "cancelled", "任務已取消", "scan_cancelled")
@@ -565,6 +593,26 @@ def _update_job(job_id: str, status: str, progress: int, message: str) -> None:
 def _set_file_error(file_id: str, message: str) -> None:
     db = get_db()
     db.execute("UPDATE files SET error = ? WHERE id = ?", (message, file_id))
+    db.commit()
+
+
+def _unreadable_reason(extension: str, ocr_available: bool) -> str:
+    if extension in _OCR_EXTENSIONS and not ocr_available:
+        return "未讀到可檢查的文字（可能是掃描影像），此檔未完成查驗。請管理者啟用 OCR，或改傳含文字的檔案。"
+    if extension in _OCR_EXTENSIONS:
+        return "OCR 後仍未讀到可檢查的文字，此檔未完成查驗，請人工確認內容。"
+    return "檔案中沒有可檢查的文字（可能只含圖片），此檔未完成查驗，請人工確認內容。"
+
+
+def _mark_file_unreadable(file_id: str, reason: str) -> None:
+    db = get_db()
+    row = db.execute("SELECT error FROM files WHERE id = ?", (file_id,)).fetchone()
+    previous = row["error"] if row and row["error"] else ""
+    error = f"{reason}（{previous}）" if previous else reason
+    db.execute(
+        "UPDATE files SET status = ?, error = ? WHERE id = ?",
+        (FILE_STATUS_UNREADABLE, error, file_id),
+    )
     db.commit()
 
 
