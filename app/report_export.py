@@ -12,7 +12,13 @@ from typing import Any
 from .db import get_db, row_to_dict
 from .usage_control import job_usage
 
-RISK_LABELS = {"High": "高風險", "Medium": "中風險", "Low": "低風險", "None": "無"}
+RISK_LABELS = {
+    "High": "高風險",
+    "Medium": "中風險",
+    "Low": "低風險",
+    "None": "無",
+    "Unknown": "未確認（有檔案未完成查驗）",
+}
 DECISION_LABELS = {
     "approved": "通過",
     "needs_changes": "需修改",
@@ -69,6 +75,14 @@ def collect_report(job_id: str) -> dict[str, Any] | None:
     }
 
 
+def _unreadable_summary(files: list[dict[str, Any]]) -> str:
+    """未讀到文字、未完成查驗的檔案清單；沒有則回傳空字串。"""
+    names = [item["original_name"] for item in files if item.get("status") == "unreadable"]
+    if not names:
+        return ""
+    return f"{'、'.join(names)}：未讀到可檢查的文字，請人工確認"
+
+
 def _risk_counts(findings: list[dict[str, Any]]) -> dict[str, int]:
     counts = {"High": 0, "Medium": 0, "Low": 0}
     for finding in findings:
@@ -110,6 +124,9 @@ def build_excel(report: dict[str, Any]) -> bytes:
         ("發現總數", len(findings)),
         ("報告產生時間", report.get("generatedAt", "")),
     ]
+    unreadable = _unreadable_summary(report.get("files", []))
+    if unreadable:
+        summary_rows.insert(3, ("未完成查驗檔案", unreadable))
     for row in summary_rows:
         summary.append(row)
     for cell in summary[1]:
@@ -239,6 +256,9 @@ def build_pdf(report: dict[str, Any]) -> bytes:
             cell(f"高風險 {counts['High']}　中風險 {counts['Medium']}　低風險 {counts['Low']}　共 {len(findings)} 筆"),
         ],
     ]
+    unreadable = _unreadable_summary(report.get("files", []))
+    if unreadable:
+        summary_data.insert(2, [cell("未完成查驗檔案"), cell(unreadable)])
     summary_table = Table(summary_data, colWidths=[30 * mm, 148 * mm])
     summary_table.setStyle(
         TableStyle(

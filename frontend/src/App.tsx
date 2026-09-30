@@ -379,6 +379,8 @@ function App() {
     }
   }, [roleView, auth?.isAdmin]);
 
+  const unreadableFiles = job?.files.filter((file) => file.status === 'unreadable') ?? [];
+
   const riskSummary = useMemo(() => {
     const counts = { High: 0, Medium: 0, Low: 0 };
     findings.forEach((finding) => {
@@ -733,8 +735,14 @@ function App() {
                   <p className="slow-notice">外部 AI 服務回應較慢，系統仍在等待。可繼續等候或取消任務後再試。</p>
                 )}
                 {job.scanMeta && <WebsiteProgress meta={job.scanMeta} />}
+                {unreadableFiles.length > 0 && (
+                  <p className="slow-notice">
+                    {unreadableFiles.length} 個檔案未讀到可檢查的文字（例如掃描影像 PDF 或只含圖片的檔案），
+                    系統無法判斷其中是否有個資，這些檔案<strong>未完成查驗</strong>。請改傳含文字的檔案、請管理者啟用 OCR，或人工逐頁檢查。
+                  </p>
+                )}
                 <div className="status-cards">
-                  <Metric label="整體風險" value={job.risk_level} tone={riskTone(job.risk_level)} />
+                  <Metric label="整體風險" value={riskLabel(job.risk_level)} tone={riskTone(job.risk_level)} />
                   <Metric label="高風險" value={riskSummary.High.toString()} tone="high" />
                   <Metric label="中風險" value={riskSummary.Medium.toString()} tone="medium" />
                 </div>
@@ -742,7 +750,9 @@ function App() {
                   {job.files.map((file) => (
                     <div key={file.id}>
                       <span>{file.original_name}</span>
-                      <strong>{file.error || file.status}</strong>
+                      {file.status === 'unreadable'
+                        ? <strong className="risk medium" title={file.error || ''}>未完成查驗</strong>
+                        : <strong>{file.error || file.status}</strong>}
                     </div>
                   ))}
                 </div>
@@ -1307,9 +1317,14 @@ function SecretGroup({
   );
 }
 
+function riskLabel(risk: string) {
+  // 有檔案未完成查驗時，後端回傳 Unknown，不能顯示成「無風險」
+  return risk === 'Unknown' ? '未確認' : risk;
+}
+
 function riskTone(risk: string) {
   if (risk === 'High') return 'high';
-  if (risk === 'Medium') return 'medium';
+  if (risk === 'Medium' || risk === 'Unknown') return 'medium';
   if (risk === 'Low') return 'low';
   return 'none';
 }
